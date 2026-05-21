@@ -1,25 +1,52 @@
-<<<<<<< HEAD
-# petone
-pet product sale app
-=======
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Petone
 
-# Run and deploy your AI Studio app
+**Petone** is a pet products and accessory store — a web app for browsing and
+buying everything your pet needs: food, toys, grooming supplies, beds, collars,
+leashes, and more.
 
-This contains everything you need to run your app locally.
+The project is a full-stack application:
 
-View your app in AI Studio: https://ai.studio/apps/4fefdd7c-6e5e-4cf3-968c-2b3925dcd10c
+- **Frontend** — React 19 + TypeScript + Vite, styled with Tailwind CSS.
+- **Backend** — Python with FastAPI, served by Uvicorn.
+
+## Project structure
+
+```
+petone/
+├── frontend/   React + TypeScript + Vite storefront
+└── backend/    Python FastAPI service (Petone API)
+```
+
+## Prerequisites
+
+- Node.js 18+ and npm
+- Python 3.10+
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
+### Backend (FastAPI)
 
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
->>>>>>> f23cd32 (initial commit)
+The API is then available at `http://localhost:8000`
+(`/` welcome message, `/health` health check, `/docs` for interactive docs).
+
+### Frontend (React)
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The storefront runs at `http://localhost:3000`.
+
+## License
+
+See [LICENSE](LICENSE).
