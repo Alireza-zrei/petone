@@ -1,0 +1,75 @@
+@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@100;300;400;500;700;900&family=Comfortaa:wght@600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Vazirmatn", ui-sans-serif, system-ui, sans-serif;
+  --font-logo: "Comfortaa", sans-serif;
+  --color-brand-orange: #f97316;
+  --color-brand-orange-light: #fb923c;
+  --color-brand-orange-dark: #ea580c;
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-800: #1e293b;
+}
+
+@layer base {
+  html {
+    direction: rtl;
+    font-family: var(--font-sans);
+  }
+  
+  body {
+    @apply bg-slate-50 text-slate-800 overflow-x-hidden;
+  }
+}
+
+@layer components {
+  .container {
+    @apply max-w-7xl mx-auto px-6 lg:px-8;
+  }
+  
+  .btn-primary {
+    @apply bg-brand-orange hover:bg-brand-orange-dark text-white font-bold py-3 px-8 rounded-2xl transition-all duration-300 shadow-sm shadow-brand-orange/20 active:scale-95;
+  }
+  
+  .card-premium {
+    @apply bg-white border border-slate-200 rounded-2xl shadow-[0_4px_6px_-1px_rgba(0,0,0,0.05),0_2px_4px_-1px_rgba(0,0,0,0.03)] hover:shadow-xl hover:border-brand-orange transition-all duration-500 overflow-hidden;
+  }
+
+  .hero-gradient {
+    background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+  }
+}
+
+@layer utilities {
+  .content-auto {
+    content-visibility: auto;
+    contain-intrinsic-size: 0 500px;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* Custom RTL Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-slate-100;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300 rounded-full hover:bg-slate-400 transition-colors;
+}

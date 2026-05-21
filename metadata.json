@@ -1,0 +1,6 @@
+{
+  "name": "پت‌وان | پت‌شاپ تخصصی",
+  "description": "Premium Persian pet shop e-commerce platform featuring a modern design, high-quality products, and a seamless shopping experience for pet owners.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
