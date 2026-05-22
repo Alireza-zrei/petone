@@ -57,10 +57,13 @@ import {
   Stethoscope,
   Scissors,
   Camera,
-  Upload
+  Upload,
+  Truck,
+  CreditCard
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PRODUCTS, CATEGORIES, TRUST_BADGES, FOOD_CATEGORIES, NAV_CATEGORIES } from './constants';
+import { fetchProducts } from './api';
 import { Product, Category } from './types';
 
 const toPersianDigits = (num: number | string | undefined | null) => {
@@ -143,9 +146,9 @@ const Header = ({
         <div onClick={onLogoClick} dir="ltr" className="flex items-center gap-1 sm:gap-2 group cursor-pointer shrink-0">
           <svg viewBox="0 0 100 100" className="w-[30px] h-[30px] sm:w-[42px] sm:h-[42px] text-brand-orange transform group-hover:rotate-12 transition-transform duration-300">
             <circle cx="50" cy="24" r="13" fill="currentColor" />
-            <path d="M 17 46 C 23 66, 35 73, 50 73 C 65 73, 77 66, 83 46" stroke="currentColor" strokeWidth="24" fill="none" strokeLinecap="round" />
+            <path d="M 17 46 C 23 66, 35 73, 50 73 C 65 73, 77 66, 83 46" stroke="currentColor" strokeWidth="20" fill="none" strokeLinecap="round" />
           </svg>
-          <span className="text-base sm:text-2xl font-logo font-black tracking-tight select-none">
+          <span className="text-xl sm:text-4xl font-logo font-black tracking-tight select-none">
             <span className="text-slate-800">pet</span><span className="text-brand-orange">one</span>
           </span>
         </div>
@@ -488,7 +491,7 @@ const Header = ({
                 <div dir="ltr" className="flex items-center gap-2">
                   <svg width="34" height="34" viewBox="0 0 100 100" className="text-brand-orange">
                     <circle cx="50" cy="24" r="13" fill="currentColor" />
-                    <path d="M 17 46 C 23 66, 35 73, 50 73 C 65 73, 77 66, 83 46" stroke="currentColor" strokeWidth="21" fill="none" strokeLinecap="round" />
+                    <path d="M 17 46 C 23 66, 35 73, 50 73 C 65 73, 77 66, 83 46" stroke="currentColor" strokeWidth="20" fill="none" strokeLinecap="round" />
                   </svg>
                   <span className="text-xl font-logo font-bold tracking-tight select-none">
                     <span className="text-slate-800">pet</span><span className="text-brand-orange">one</span>
@@ -764,7 +767,7 @@ const CircularCategoryCarousel = ({ onCategoryClick, activeCategory, categories 
                   <motion.div 
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    className={`relative w-full aspect-square sm:w-24 sm:h-24 rounded-full p-0.5 border-2 transition-all duration-300 ${activeCategory === cat.name ? 'border-brand-orange shadow-lg shadow-brand-orange/20' : 'border-slate-100 group-hover:border-slate-300'}`}
+                    className={`relative w-full aspect-square sm:w-24 sm:h-24 md:w-28 md:h-28 lg:w-32 lg:h-32 rounded-full p-0.5 border-2 transition-all duration-300 ${activeCategory === cat.name ? 'border-brand-orange shadow-lg shadow-brand-orange/20' : 'border-slate-100 group-hover:border-slate-300'}`}
                   >
                     <div className="w-full h-full rounded-full overflow-hidden shadow-inner bg-slate-50 relative aspect-square">
                       <img 
@@ -778,7 +781,7 @@ const CircularCategoryCarousel = ({ onCategoryClick, activeCategory, categories 
                       />
                     </div>
                   </motion.div>
-                  <span className={`block text-[9px] sm:text-[10px] font-black transition-colors truncate w-full sm:w-24 text-center px-1 ${activeCategory === cat.name ? 'text-brand-orange' : 'text-slate-700'}`}>{cat.name}</span>
+                  <span className={`block text-[9px] sm:text-[10px] md:text-xs lg:text-sm font-black transition-colors truncate w-full sm:w-24 md:w-28 lg:w-32 text-center px-1 ${activeCategory === cat.name ? 'text-brand-orange' : 'text-slate-700'}`}>{cat.name}</span>
                 </div>
               </motion.div>
             ))}
@@ -808,18 +811,26 @@ const CategoriesSection = ({ onNavClick, foodCategories = FOOD_CATEGORIES }: { o
     f1: {
       icon: (
         <svg viewBox="0 0 100 100" className="w-10 h-10 sm:w-14 sm:h-14 transition-all duration-300" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M15 65 L22 80 C24 84, 28 86, 33 86 L67 86 C72 86, 76 84, 78 80 L85 65 Z" fill="currentColor" opacity="0.15"/>
-          <path d="M12 62 C12 60, 14 58, 17 58 L83 58 C86 58, 88 60, 88 62 C88 77, 72 86, 50 86 C28 86, 12 77, 12 62 Z" fill="currentColor" />
-          <path d="M22 64 C22 64, 35 68, 50 68 C65 68, 78 64, 78 64" stroke="white" strokeWidth="3" strokeLinecap="round" opacity="0.4"/>
-          <path d="M30 58 C35 48, 42 42, 50 42 C58 42, 65 48, 70 58" fill="currentColor" opacity="0.8"/>
-          <circle cx="42" cy="46" r="4" fill="white" opacity="0.9" />
-          <circle cx="56" cy="45" r="3" fill="white" opacity="0.9" />
-          <circle cx="49" cy="51" r="3.5" fill="white" opacity="0.9" />
-          <rect x="42" y="70" width="16" height="6" rx="3" fill="white" />
-          <circle cx="42" cy="70" r="4.5" fill="white" />
-          <circle cx="42" cy="76" r="4.5" fill="white" />
-          <circle cx="58" cy="70" r="4.5" fill="white" />
-          <circle cx="58" cy="76" r="4.5" fill="white" />
+          {/* Dry Food Bag (کیسه غذای خشک) */}
+          <path d="M18 25 L45 22 L51 84 L14 84 Z" fill="currentColor" opacity="0.15" />
+          <path d="M22 25 L48 22 L54 84 L18 84 Z" fill="currentColor" />
+          <path d="M22 25 L48 22 L45 31 L25 33 Z" fill="white" opacity="0.25" stroke="currentColor" strokeWidth="1" />
+          {/* Bone Logo on Bag */}
+          <g transform="translate(33, 50) scale(0.6)" fill="white">
+            <rect x="5" y="11" width="22" height="8" rx="2" />
+            <circle cx="5" cy="11" r="5" />
+            <circle cx="5" cy="19" r="5" />
+            <circle cx="27" cy="11" r="5" />
+            <circle cx="27" cy="19" r="5" />
+          </g>
+          {/* Wet Food Pouch (پوچ) */}
+          <path d="M50 42 L55 38 L78 38 L83 84 L45 84 Z" fill="currentColor" opacity="0.65" />
+          <path d="M45 84 L83 84" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+          <path d="M48 44 L45 42 L50 42 Z" fill="white" opacity="0.4" />
+          {/* Waves on Pouch */}
+          <path d="M53 58 Q64 50 75 58" stroke="white" strokeWidth="2.5" strokeLinecap="round" opacity="0.8" />
+          <path d="M50 70 L78 70" stroke="white" strokeWidth="2" strokeDasharray="4 2" opacity="0.7" />
+          <path d="M64 63 C64 63 61 60 59 62 C57 64 59 67 64 69 C69 67 71 64 69 62 C67 60 64 63 64 63 Z" fill="white" opacity="0.9" />
         </svg>
       ),
       circleClass: "bg-orange-50 border border-orange-100/50 text-brand-orange group-hover:bg-brand-orange group-hover:text-white group-hover:border-brand-orange",
@@ -828,16 +839,26 @@ const CategoriesSection = ({ onNavClick, foodCategories = FOOD_CATEGORIES }: { o
     f2: {
       icon: (
         <svg viewBox="0 0 100 100" className="w-10 h-10 sm:w-14 sm:h-14 transition-all duration-300" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M15 35 C15 35, 18 62, 50 62 C82 62, 85 35, 85 35 C85 35, 78 48, 50 48 C22 48, 15 35, 15 35 Z" fill="currentColor" />
-          <rect x="44" y="44" width="12" height="10" rx="2" fill="white" opacity="0.9"/>
-          <rect x="47" y="47" width="6" height="4" rx="1" fill="currentColor" />
-          <path d="M42 59 C39 59, 37 61, 37 64 C37 67, 39 69, 42 69 L58 69 C61 69, 63 67, 63 64 C63 61, 61 59, 58 59 Z" fill="currentColor" opacity="0.7" />
-          <circle cx="42" cy="61" r="3" fill="currentColor" opacity="0.7" />
-          <circle cx="42" cy="67" r="3" fill="currentColor" opacity="0.7" />
-          <circle cx="58" cy="61" r="3" fill="currentColor" opacity="0.7" />
-          <circle cx="58" cy="67" r="3" fill="currentColor" opacity="0.7" />
-          <circle cx="50" cy="54" r="2.5" fill="currentColor" opacity="0.6"/>
-          <line x1="50" y1="52" x2="50" y2="59" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+          {/* Collar (قلاده) */}
+          <path d="M22 62 C15 50, 20 32, 38 24 C56 16, 75 22, 82 40" stroke="currentColor" strokeWidth="8" strokeLinecap="round" />
+          {/* Buckle */}
+          <rect x="18" y="44" width="14" height="18" rx="3" fill="currentColor" stroke="white" strokeWidth="2" />
+          <rect x="23" y="49" width="4" height="8" fill="white" />
+          {/* Hanging tag */}
+          <circle cx="50" cy="20" r="7" fill="currentColor" />
+          <circle cx="50" cy="20" r="2.5" fill="white" opacity="0.9" />
+          
+          {/* Brush (برس) */}
+          <g transform="translate(32, 32) rotate(-15)">
+            <path d="M15 30 L45 0" stroke="currentColor" strokeWidth="9" strokeLinecap="round" />
+            <rect x="-2" y="18" width="34" height="24" rx="8" fill="currentColor" stroke="white" strokeWidth="3" />
+            {/* Brush bristles plate */}
+            <rect x="3" y="23" width="24" height="14" rx="4" fill="white" opacity="0.90" />
+            {/* Soft pins */}
+            <line x1="8" y1="27" x2="8" y2="33" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+            <line x1="15" y1="27" x2="15" y2="33" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+            <line x1="22" y1="27" x2="22" y2="33" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+          </g>
         </svg>
       ),
       circleClass: "bg-orange-50 border border-orange-100/50 text-brand-orange group-hover:bg-brand-orange group-hover:text-white group-hover:border-brand-orange",
@@ -846,17 +867,28 @@ const CategoriesSection = ({ onNavClick, foodCategories = FOOD_CATEGORIES }: { o
     f3: {
       icon: (
         <svg viewBox="0 0 100 100" className="w-10 h-10 sm:w-14 sm:h-14 transition-all duration-300" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M22 35 C22 25, 78 25, 78 35 L78 72 C78 82, 22 82, 22 72 Z" fill="currentColor" />
-          <ellipse cx="50" cy="32" rx="28" ry="7" fill="currentColor" opacity="0.3"/>
-          <ellipse cx="50" cy="32" rx="28" ry="7" stroke="white" strokeWidth="2.5"/>
-          <ellipse cx="50" cy="74" rx="28" ry="7" fill="white" opacity="0.2"/>
-          <rect x="22" y="42" width="56" height="22" fill="white" opacity="0.9"/>
-          <circle cx="50" cy="55" r="4.5" fill="currentColor"/>
-          <circle cx="43" cy="48" r="2.5" fill="currentColor"/>
-          <circle cx="50" cy="45" r="2.5" fill="currentColor"/>
-          <circle cx="57" cy="48" r="2.5" fill="currentColor"/>
-          <line x1="28" y1="46" x2="36" y2="46" stroke="currentColor" strokeWidth="2" strokeLinecap="round" opacity="0.4" />
-          <line x1="64" y1="46" x2="72" y2="46" stroke="currentColor" strokeWidth="2" strokeLinecap="round" opacity="0.4" />
+          {/* Pet Food Can (کنسرو) */}
+          <rect x="20" y="32" width="45" height="48" rx="6" fill="currentColor" />
+          {/* Rim */}
+          <ellipse cx="42.5" cy="32" rx="22.5" ry="5" fill="currentColor" stroke="white" strokeWidth="2" />
+          <ellipse cx="42.5" cy="32" rx="14" ry="3.5" fill="white" opacity="0.3" />
+          {/* Pull Tab */}
+          <circle cx="42" cy="29" r="4.5" stroke="white" strokeWidth="1.8" />
+          
+          {/* Wrap Paper Label */}
+          <rect x="20" y="44" width="45" height="22" fill="white" opacity="0.9" />
+          <path d="M30 55 Q42.5 50 55 55" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <circle cx="42.5" cy="54" r="2.5" fill="currentColor" />
+          
+          {/* Treat Bone (استخوان) */}
+          <g transform="translate(25, 52) rotate(22)">
+            <rect x="10" y="8" width="34" height="10" rx="2" fill="currentColor" stroke="white" strokeWidth="3" />
+            <circle cx="10" cy="8" r="6" fill="currentColor" stroke="white" strokeWidth="2" />
+            <circle cx="10" cy="18" r="6" fill="currentColor" stroke="white" strokeWidth="2" />
+            <circle cx="44" cy="8" r="6" fill="currentColor" stroke="white" strokeWidth="2" />
+            <circle cx="44" cy="18" r="6" fill="currentColor" stroke="white" strokeWidth="2" />
+            <rect x="11" y="9.5" width="32" height="7" fill="currentColor" />
+          </g>
         </svg>
       ),
       circleClass: "bg-orange-50 border border-orange-100/50 text-brand-orange group-hover:bg-brand-orange group-hover:text-white group-hover:border-brand-orange",
@@ -865,13 +897,23 @@ const CategoriesSection = ({ onNavClick, foodCategories = FOOD_CATEGORIES }: { o
     f4: {
       icon: (
         <svg viewBox="0 0 100 100" className="w-10 h-10 sm:w-14 sm:h-14 transition-all duration-300" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M18 35 C18 25, 30 18, 50 18 C70 18, 82 25, 82 35 L82 65 C82 78, 62 88, 50 88 C38 88, 18 78, 18 65 Z" fill="currentColor" />
-          <path d="M24 38 C24 30, 34 24, 50 24 C66 24, 76 30, 76 38 L76 62 C76 72, 60 80, 50 80 C40 80, 24 72, 24 62 Z" stroke="white" strokeWidth="2.5" strokeDasharray="4 2" opacity="0.6"/>
-          <path d="M41 42 H59" stroke="white" strokeWidth="6" strokeLinecap="round" />
-          <path d="M50 33 V51" stroke="white" strokeWidth="6" strokeLinecap="round" />
-          <circle cx="50" cy="62" r="5" fill="white"/>
-          <circle cx="43" cy="55" r="3" fill="white"/>
-          <circle cx="57" cy="55" r="3" fill="white"/>
+          {/* Pill Bottle (بطری دارو) */}
+          <rect x="22" y="32" width="36" height="50" rx="8" fill="currentColor" />
+          <rect x="32" y="24" width="16" height="8" rx="2" stroke="white" strokeWidth="1.5" fill="currentColor" />
+          <line x1="30" y1="32" x2="50" y2="32" stroke="white" strokeWidth="3" strokeLinecap="round" />
+          
+          {/* Medical Label */}
+          <rect x="27" y="44" width="26" height="26" rx="4" fill="white" opacity="0.9" />
+          {/* Healthcare Plus (+) */}
+          <path d="M40 49 V65 M32 57 H48" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+
+          {/* Elegant pill Capsule (قرص و کپسول) */}
+          <g transform="translate(56, 46) rotate(-35)">
+            <path d="M6 14 A 6 6 0 0 1 18 14 L 18 20 L 6 20 Z" fill="currentColor" stroke="white" strokeWidth="2.5" />
+            <path d="M6 20 L 18 20 L 18 26 A 6 6 0 0 1 6 26 Z" fill="white" opacity="0.9" stroke="white" strokeWidth="2.5" />
+            <line x1="6" y1="20" x2="18" y2="20" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M10 12 L 10 18" stroke="white" strokeWidth="1" strokeLinecap="round" opacity="0.6" />
+          </g>
         </svg>
       ),
       circleClass: "bg-orange-50 border border-orange-100/50 text-brand-orange group-hover:bg-brand-orange group-hover:text-white group-hover:border-brand-orange",
@@ -880,15 +922,29 @@ const CategoriesSection = ({ onNavClick, foodCategories = FOOD_CATEGORIES }: { o
     f5: {
       icon: (
         <svg viewBox="0 0 100 100" className="w-10 h-10 sm:w-14 sm:h-14 transition-all duration-300" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="70" cy="28" r="7" fill="currentColor" opacity="0.25" />
-          <circle cx="76" cy="40" r="5" fill="currentColor" opacity="0.25" />
-          <circle cx="28" cy="74" r="8" fill="currentColor" opacity="0.25" />
-          <path d="M35 38 C35 34, 42 32, 50 32 C58 32, 65 34, 65 38 L65 76 C65 81, 58 84, 50 84 C42 84, 35 81, 35 76 Z" fill="currentColor" />
-          <rect x="45" y="22" width="10" height="10" rx="2" fill="currentColor" opacity="0.8" />
-          <line x1="43" y1="30" x2="57" y2="30" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
-          <rect x="40" y="44" width="20" height="24" rx="4" fill="white" />
-          <path d="M50 49 C47 52, 47 56, 50 59 C53 56, 53 52, 50 49 Z" fill="currentColor" />
-          <path d="M22 35 L26 39 M26 35 L22 39" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" opacity="0.6"/>
+          {/* Shampoo Bottle (شامپو با طراحی خمیده) */}
+          <path d="M30 38 C30 30, 36 28, 42 28 H46 C52 28, 58 30, 58 38 L54 78 C54 82, 48 84, 44 84 C40 84, 34 82, 34 78 Z" fill="currentColor" />
+          {/* Pump top */}
+          <path d="M44 28 V20 H36 M44 20 H48" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+          <rect x="40" y="24" width="8" height="4" fill="white" opacity="0.5" />
+          
+          {/* White Brand Label with water drops / bubble style */}
+          <rect x="36" y="44" width="16" height="26" rx="3" fill="white" opacity="0.9" />
+          <circle cx="44" cy="57" r="3" fill="currentColor" />
+          <circle cx="44" cy="51" r="1.5" fill="currentColor" />
+          <circle cx="40" cy="54" r="1.5" fill="currentColor" />
+          <circle cx="48" cy="54" r="1.5" fill="currentColor" />
+
+          {/* Floating Soap Bubbles & Foam (کف و حباب صابون) */}
+          <circle cx="68" cy="38" r="6" fill="white" stroke="currentColor" strokeWidth="1.5" opacity="0.9" />
+          <path d="M70 36 A 3 3 0 0 0 66 36" stroke="white" strokeWidth="1" strokeLinecap="round" />
+          
+          <circle cx="76" cy="54" r="8" fill="white" stroke="currentColor" strokeWidth="2" opacity="0.8" />
+          <path d="M79 51 A 4 4 0 0 0 74 51" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+          
+          <circle cx="66" cy="70" r="5" fill="white" stroke="currentColor" strokeWidth="1.5" opacity="0.6" />
+          <circle cx="28" cy="62" r="3" fill="white" stroke="currentColor" strokeWidth="1" opacity="0.8" />
+          <circle cx="22" cy="74" r="2" fill="white" stroke="currentColor" strokeWidth="1" opacity="0.8" />
         </svg>
       ),
       circleClass: "bg-orange-50 border border-orange-100/50 text-brand-orange group-hover:bg-brand-orange group-hover:text-white group-hover:border-brand-orange",
@@ -897,13 +953,18 @@ const CategoriesSection = ({ onNavClick, foodCategories = FOOD_CATEGORIES }: { o
     f6: {
       icon: (
         <svg viewBox="0 0 100 100" className="w-10 h-10 sm:w-14 sm:h-14 transition-all duration-300" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M20 54 C20 37, 33 24, 50 24 C67 24, 80 37, 80 54 C80 67, 72 78, 50 84 C28 78, 20 67, 20 54 Z" fill="currentColor" opacity="0.15" />
-          <path d="M50 78 C50 78, 28 64, 28 48 C28 38, 36 30, 44 30 C47 30, 49 31, 50 33 C51 31, 53 30, 56 30 C64 30, 72 38, 72 48 C72 64, 50 78, 50 78 Z" fill="currentColor" />
-          <circle cx="50" cy="51" r="5" fill="white" />
-          <circle cx="42" cy="44" r="3" fill="white" />
-          <circle cx="50" cy="40" r="3" fill="white" />
-          <circle cx="58" cy="44" r="3" fill="white" />
-          <path d="M30 82 A 28 28 0 0 1 70 82" stroke="white" strokeWidth="3.5" strokeLinecap="round" opacity="0.5" />
+          {/* Love Heart Background (پیش‌زمینه قلب) */}
+          <path d="M50 82 C50 82, 14 62, 14 38 C14 22, 28 14, 38 21 C44 25, 48 31, 50 34 C52 31, 56 25, 62 21 C72 14, 86 22, 86 38 C86 62, 50 82, 50 82 Z" fill="currentColor" />
+          <path d="M50 82 C50 82, 18 64, 18 41 C18 28, 28 20, 38 26 C43 29, 47 34, 50 37" stroke="white" strokeWidth="2.5" strokeLinecap="round" opacity="0.3" strokeDasharray="60 10 10 10" />
+
+          {/* Paw print overlaid inside (پنجه مِهرآمیز) */}
+          <g transform="translate(0, 4)" fill="white">
+            <path d="M40 58 C32 58, 28 66, 31 73 C34 80, 42 82, 50 82 C58 82, 66 80, 69 73 C72 66, 68 58, 60 58 C55 58, 50 61, 50 61 C50 61, 45 58, 40 58 Z" />
+            <ellipse cx="33" cy="48" rx="5" ry="7" />
+            <ellipse cx="44" cy="41" rx="5" ry="7.5" />
+            <ellipse cx="56" cy="41" rx="5" ry="7.5" />
+            <ellipse cx="67" cy="48" rx="5" ry="7" />
+          </g>
         </svg>
       ),
       circleClass: "bg-orange-50 border border-orange-100/50 text-brand-orange group-hover:bg-brand-orange group-hover:text-white group-hover:border-brand-orange",
@@ -1040,28 +1101,36 @@ const TrustSection = () => {
   return (
     <footer className="bg-white border border-slate-100 py-10 px-6 lg:px-12 container my-12 rounded-[40px] shadow-sm grid grid-cols-2 md:grid-cols-4 gap-8 items-center">
       <div className="flex flex-col sm:flex-row items-center gap-3 text-center sm:text-right">
-        <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-2xl shadow-inner italic">🚚</div>
+        <div className="w-12 h-12 bg-orange-50 rounded-2xl flex items-center justify-center text-brand-orange shadow-inner shrink-0">
+          <Truck size={24} className="stroke-[2]" />
+        </div>
         <div className="space-y-0.5">
            <h4 className="text-xs font-black text-slate-800">ارسال سریع</h4>
            <p className="text-[9px] font-bold text-slate-400">تحویل در همان روز</p>
         </div>
       </div>
       <div className="flex flex-col sm:flex-row items-center gap-3 text-center sm:text-right">
-        <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-2xl shadow-inner">🛡️</div>
+        <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600 shadow-inner shrink-0">
+          <ShieldCheck size={24} className="stroke-[2]" />
+        </div>
         <div className="space-y-0.5">
            <h4 className="text-xs font-black text-slate-800">ضمانت اصالت</h4>
            <p className="text-[9px] font-bold text-slate-400">کالای ۱۰۰٪ اورجینال</p>
         </div>
       </div>
       <div className="flex flex-col sm:flex-row items-center gap-3 text-center sm:text-right">
-        <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-2xl shadow-inner">📞</div>
+        <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600 shadow-inner shrink-0">
+          <Phone size={24} className="stroke-[2]" />
+        </div>
         <div className="space-y-0.5">
            <h4 className="text-xs font-black text-slate-800">پشتیبانی ۲۴ ساعته</h4>
            <p className="text-[9px] font-bold text-slate-400">پاسخگویی حتی تعطیلات</p>
         </div>
       </div>
       <div className="flex flex-col sm:flex-row items-center gap-3 text-center sm:text-right">
-        <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-2xl shadow-inner">💳</div>
+        <div className="w-12 h-12 bg-purple-50 rounded-2xl flex items-center justify-center text-purple-600 shadow-inner shrink-0">
+          <CreditCard size={24} className="stroke-[2]" />
+        </div>
         <div className="space-y-0.5">
            <h4 className="text-xs font-black text-slate-800">پرداخت امن</h4>
            <p className="text-[9px] font-bold text-slate-400">بهترین درگاه‌های بانکی</p>
@@ -1656,14 +1725,14 @@ const HomeView = ({
 
           <section className="py-2">
             <div className="container">
-               <div className="relative aspect-[16/5] rounded-[32px] overflow-hidden group shadow-lg border border-slate-100 bg-slate-100">
+               <div className="relative aspect-[4/3] xs:aspect-[1.5] sm:aspect-[16/5] rounded-[32px] overflow-hidden group shadow-lg border border-slate-100 bg-slate-100">
                   <img src="https://images.unsplash.com/photo-1516734212186-a967f81ad0d7?auto=format&fit=crop&q=80&w=1200" alt="Promo Banner" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-1000" referrerPolicy="no-referrer" loading="lazy" width="1200" height="375" />
-                  <div className="absolute inset-0 bg-gradient-to-l from-slate-900/80 via-slate-900/40 to-transparent flex items-center px-12 text-white">
-                     <div className="max-w-md space-y-4 text-right">
-                        <div className="inline-block bg-brand-orange px-3 py-1 rounded-full text-[10px] font-black uppercase">پیشنهاد طلایی</div>
-                        <h2 className="text-3xl font-black leading-tight">غذای مکمل مخصوص <br /> توله سگ‌های نژاد کوچک</h2>
-                        <h2 className="text-sm text-white/80 font-medium">تا ۳۰٪ تخفیف برای اولین خرید محصولات منتخب برندهای برتر</h2>
-                        <button onClick={() => setView('shop')} className="btn-primary mt-2">همین حالا بخرید</button>
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-900/95 via-slate-900/75 to-slate-900/20 sm:bg-gradient-to-l sm:from-slate-900/90 sm:via-slate-900/40 sm:to-transparent flex items-center px-6 sm:px-12 text-white">
+                     <div className="max-w-md space-y-2 sm:space-y-4 text-right">
+                        <div className="inline-block bg-brand-orange px-3 py-1 rounded-full text-[9px] sm:text-[10px] font-black uppercase">پیشنهاد طلایی</div>
+                        <h2 className="text-lg sm:text-2xl md:text-3xl font-black leading-tight">غذای مکمل مخصوص <br className="hidden sm:inline" /> توله سگ‌های نژاد کوچک</h2>
+                        <h2 className="text-[11px] sm:text-sm text-white/80 font-medium leading-relaxed">تا ۳۰٪ تخفیف برای اولین خرید محصولات منتخب برندهای برتر</h2>
+                        <button onClick={() => setView('shop')} className="btn-primary mt-2 text-[10px] sm:text-xs">همین حالا بخرید</button>
                      </div>
                   </div>
                </div>
@@ -1683,13 +1752,13 @@ const HomeView = ({
                     <p className="text-[10px] text-slate-400 font-bold">راهنماهای علمی و کاربردی برای نگهداری، سلامت و تربیت پت دلبند شما</p>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="flex overflow-x-auto md:grid md:grid-cols-3 gap-6 snap-x snap-mandatory pb-4 md:pb-0 scrollbar-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden px-4 md:px-0">
                   {articles.map(article => (
                     <motion.div 
                       key={article.id}
                       whileHover={{ y: -6 }}
                       onClick={() => setActiveArticle(article)}
-                      className="bg-white rounded-[24px] overflow-hidden border border-slate-100 shadow-sm hover:shadow-xl hover:border-orange-200 transition-all cursor-pointer flex flex-col"
+                      className="bg-white rounded-[24px] overflow-hidden border border-slate-100 shadow-sm hover:shadow-xl hover:border-orange-200 transition-all cursor-pointer flex flex-col shrink-0 w-[85vw] max-w-[340px] md:w-auto snap-center"
                     >
                       <div className="aspect-[16/10] overflow-hidden relative bg-slate-100">
                         <img src={article.image} alt={article.title} className="w-full h-full object-cover" />
@@ -1901,7 +1970,7 @@ const AuthView = ({
               <div onClick={() => setView('home')} className="flex items-center gap-2 group cursor-pointer inline-flex">
                  <svg width="50" height="50" viewBox="0 0 100 100" className="text-brand-orange transform group-hover:rotate-12 transition-transform duration-300">
                    <circle cx="50" cy="24" r="13" fill="currentColor" />
-                   <path d="M 17 46 C 23 66, 35 73, 50 73 C 65 73, 77 66, 83 46" stroke="currentColor" strokeWidth="21" fill="none" strokeLinecap="round" />
+                   <path d="M 17 46 C 23 66, 35 73, 50 73 C 65 73, 77 66, 83 46" stroke="currentColor" strokeWidth="20" fill="none" strokeLinecap="round" />
                  </svg>
               </div>
             </div>
@@ -4637,7 +4706,7 @@ const Footer = () => {
               <div dir="ltr" className="flex items-center gap-2 justify-end">
                 <svg width="34" height="34" viewBox="0 0 100 100" className="text-brand-orange">
                   <circle cx="50" cy="24" r="13" fill="currentColor" />
-                  <path d="M 17 46 C 23 66, 35 73, 50 73 C 65 73, 77 66, 83 46" stroke="currentColor" strokeWidth="21" fill="none" strokeLinecap="round" />
+                  <path d="M 17 46 C 23 66, 35 73, 50 73 C 65 73, 77 66, 83 46" stroke="currentColor" strokeWidth="20" fill="none" strokeLinecap="round" />
                 </svg>
                 <span className="text-xl font-logo font-bold tracking-tight select-none">
                   <span className="text-slate-800">pet</span><span className="text-brand-orange">one</span>
@@ -4809,10 +4878,13 @@ export default function App() {
   const [adminLoginError, setAdminLoginError] = useState('');
 
   // Dynamic system states
-  const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('petone_products_v3');
-    return saved ? JSON.parse(saved) : PRODUCTS;
-  });
+  const [products, setProducts] = useState<Product[]>([]);
+
+  useEffect(() => {
+    fetchProducts()
+      .then(setProducts)
+      .catch(() => setError('بارگذاری محصولات از سرور ناموفق بود'));
+  }, []);
   
   const [categories, setCategories] = useState(() => {
     const saved = localStorage.getItem('petone_categories_v3');
@@ -5118,7 +5190,7 @@ export default function App() {
             setSelectedProduct={setSelectedProduct} 
             handleAddToCart={handleAddToCart} 
             products={products}
-            categories={categories}
+            categories={CATEGORIES}
             foodCategories={foodCategories}
             banners={heroSlides}
             articles={articles}

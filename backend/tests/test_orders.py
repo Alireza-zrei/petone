@@ -12,6 +12,7 @@ async def _add_product(
         "price": 4500,
         "category": "beds",
         "stock": stock,
+        "brand": "BedMaker",
     }
     response = await client.post("/products", json=payload, headers=headers)
     return response.json()["id"]

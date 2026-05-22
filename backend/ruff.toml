@@ -15,3 +15,6 @@ select = [
 
 [lint.isort]
 known-first-party = ["app"]
+
+[lint.per-file-ignores]
+"app/seed.py" = ["E501"]  # long demo image URLs and Persian descriptions

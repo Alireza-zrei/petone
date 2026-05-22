@@ -8,6 +8,7 @@ SAMPLE_PRODUCT = {
     "category": "toys",
     "stock": 25,
     "image_url": "https://example.com/chew-toy.png",
+    "brand": "Chewy Co",
 }
 
 Headers = dict[str, str]

@@ -12,6 +12,7 @@ async def _make_order(
         "price": 3000,
         "category": "leashes",
         "stock": 5,
+        "brand": "LeashCo",
     }
     pid = (
         await client.post("/products", json=payload, headers=admin_headers)
