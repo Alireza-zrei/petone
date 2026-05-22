@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     app_name: str = "Petone API"
     environment: str = "development"
     debug: bool = True
+    log_level: str = "INFO"
 
     database_url: str = "sqlite+aiosqlite:///./petone.db"
 
@@ -21,6 +22,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
+
+    # Payment gateway — set PAYMENT_GATEWAY=shaparak and the SHAPARAK_* values
+    # in production once the integration URL is available.
+    payment_gateway: str = "fake"
+    shaparak_base_url: str = ""
+    shaparak_merchant_id: str = ""
+    frontend_url: str = "http://localhost:3000"
 
     cors_origins: list[str] = [
         "http://localhost:3000",

@@ -1,0 +1,47 @@
+# Local development stack: backend + PostgreSQL.
+# Production should use a managed/separately-secured database and real secrets.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: petone
+      POSTGRES_PASSWORD: petone
+      POSTGRES_DB: petone
+    ports:
+      - "5432:5432"
+    volumes:
+      - petone-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U petone"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    image: petone-backend
+    build: .
+    command: alembic upgrade head
+    environment:
+      DATABASE_URL: postgresql+asyncpg://petone:petone@db:5432/petone
+    depends_on:
+      db:
+        condition: service_healthy
+
+  backend:
+    image: petone-backend
+    build: .
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql+asyncpg://petone:petone@db:5432/petone
+      SECRET_KEY: dev-compose-secret-not-for-production
+      CORS_ORIGINS: '["http://localhost:3000","http://127.0.0.1:3000"]'
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  petone-db-data:

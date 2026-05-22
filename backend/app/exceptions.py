@@ -68,3 +68,48 @@ class InactiveUser(ForbiddenError):
 class AdminRequired(ForbiddenError):
     def __init__(self) -> None:
         super().__init__("Administrator privileges are required")
+
+
+# --- Cart & orders ---
+
+
+class OrderNotFound(NotFoundError):
+    def __init__(self, order_id: int) -> None:
+        super().__init__(f"Order {order_id} not found")
+        self.order_id = order_id
+
+
+class CartItemNotFound(NotFoundError):
+    def __init__(self, product_id: int) -> None:
+        super().__init__(f"Product {product_id} is not in the cart")
+        self.product_id = product_id
+
+
+class EmptyCart(ConflictError):
+    def __init__(self) -> None:
+        super().__init__("Cannot checkout an empty cart")
+
+
+class InsufficientStock(ConflictError):
+    def __init__(self, product_id: int, requested: int, available: int) -> None:
+        super().__init__(
+            f"Product {product_id}: requested {requested}, only {available} in stock"
+        )
+        self.product_id = product_id
+
+
+# --- Payments ---
+
+
+class PaymentNotFound(NotFoundError):
+    def __init__(self, authority: str) -> None:
+        super().__init__("Payment not found")
+        self.authority = authority
+
+
+class OrderNotPayable(ConflictError):
+    def __init__(self, order_id: int, current_status: str) -> None:
+        super().__init__(
+            f"Order {order_id} is not payable (current status: {current_status})"
+        )
+        self.order_id = order_id

@@ -16,7 +16,19 @@ class ProductBase(BaseModel):
 
 
 class ProductCreate(ProductBase):
-    pass
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "name": "Chew Toy",
+                "slug": "chew-toy",
+                "description": "Durable rubber chew toy for dogs.",
+                "price": 1299,
+                "category": "toys",
+                "stock": 25,
+                "image_url": "https://example.com/chew-toy.png",
+            }
+        }
+    )
 
 
 class ProductUpdate(BaseModel):

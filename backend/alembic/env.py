@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config import settings
 from app.database import Base
+from app.domains.orders import models as orders_models  # noqa: F401
+from app.domains.payments import models as payments_models  # noqa: F401
 from app.domains.products import models as products_models  # noqa: F401
 from app.domains.users import models as users_models  # noqa: F401
 

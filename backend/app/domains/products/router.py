@@ -16,11 +16,13 @@ async def list_products(
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> list[Product]:
+    """List products in the catalog, newest id last. Supports skip/limit paging."""
     return await service.list_products(db, skip=skip, limit=limit)
 
 
 @router.get("/{product_id}", response_model=ProductRead)
 async def get_product(product_id: int, db: DbSession) -> Product:
+    """Fetch a single product by id."""
     return await service.get_product(db, product_id)
 
 
@@ -31,6 +33,7 @@ async def get_product(product_id: int, db: DbSession) -> Product:
     dependencies=[Depends(get_current_admin)],
 )
 async def create_product(data: ProductCreate, db: DbSession) -> Product:
+    """Create a product. Admin only."""
     return await service.create_product(db, data)
 
 
@@ -40,6 +43,7 @@ async def create_product(data: ProductCreate, db: DbSession) -> Product:
     dependencies=[Depends(get_current_admin)],
 )
 async def update_product(product_id: int, data: ProductUpdate, db: DbSession) -> Product:
+    """Partially update a product. Admin only."""
     return await service.update_product(db, product_id, data)
 
 
@@ -49,4 +53,5 @@ async def update_product(product_id: int, data: ProductUpdate, db: DbSession) ->
     dependencies=[Depends(get_current_admin)],
 )
 async def delete_product(product_id: int, db: DbSession) -> None:
+    """Soft-delete a product. Admin only."""
     await service.delete_product(db, product_id)

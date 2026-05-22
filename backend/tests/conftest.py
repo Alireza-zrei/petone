@@ -1,5 +1,6 @@
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Generator
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -8,7 +9,16 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base, get_db
 from app.domains.users import crud as users_crud
 from app.main import app
+from app.rate_limit import limiter
 from app.security import create_access_token, hash_password
+
+
+@pytest.fixture(autouse=True)
+def _disable_rate_limiter() -> Generator[None, None, None]:
+    """Keep the limiter off for all tests; the rate-limit test re-enables it."""
+    limiter.enabled = False
+    yield
+    limiter.enabled = True
 
 
 @pytest_asyncio.fixture
