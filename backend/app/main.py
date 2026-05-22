@@ -1,11 +1,24 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="Petone API")
+from app.config import settings
+
+app = FastAPI(title=settings.app_name)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.get("/")
-def read_root():
+async def read_root() -> dict[str, str]:
     return {"message": "Welcome to Petone API"}
 
+
 @app.get("/health")
-def health():
+async def health() -> dict[str, str]:
     return {"status": "ok"}
