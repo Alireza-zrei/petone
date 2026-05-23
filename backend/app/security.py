@@ -1,4 +1,6 @@
+import hashlib
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -20,6 +22,15 @@ def verify_password(password: str, hashed: str) -> bool:
     return _pwd_context.verify(password, hashed)
 
 
+def hash_refresh_token(token: str) -> str:
+    """Fast deterministic hash for indexed lookup of stored refresh tokens.
+
+    bcrypt is unnecessary: tokens are high-entropy JWTs, not user-chosen secrets,
+    and we need an exact-match index lookup on every /auth/refresh call.
+    """
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def _create_token(subject: int, token_type: str, expires_delta: timedelta) -> str:
     now = datetime.now(UTC)
     payload = {
@@ -27,6 +38,9 @@ def _create_token(subject: int, token_type: str, expires_delta: timedelta) -> st
         "type": token_type,
         "iat": int(now.timestamp()),
         "exp": int((now + expires_delta).timestamp()),
+        # jti guarantees every token's payload is unique even when issued in
+        # the same second, so the stored refresh-token hash is always unique.
+        "jti": uuid4().hex,
     }
     return jwt.encode(payload, settings.secret_key, algorithm=settings.jwt_algorithm)
 

@@ -55,6 +55,7 @@ async def admin_headers(db_session: AsyncSession) -> dict[str, str]:
     admin = await users_crud.create(
         db_session,
         email="admin@petone.com",
+        phone="9120000001",
         hashed_password=hash_password("adminpass1"),
         full_name="Site Admin",
         is_admin=True,
@@ -67,6 +68,7 @@ async def user_headers(db_session: AsyncSession) -> dict[str, str]:
     user = await users_crud.create(
         db_session,
         email="user@petone.com",
+        phone="9120000002",
         hashed_password=hash_password("userpass1"),
         full_name="Regular User",
     )

@@ -60,6 +60,36 @@ class EmailAlreadyRegistered(ConflictError):
         self.email = email
 
 
+class PhoneAlreadyRegistered(ConflictError):
+    def __init__(self, phone: str) -> None:
+        super().__init__(f"Phone '{phone}' is already registered")
+        self.phone = phone
+
+
+class InvalidPhoneNumber(ConflictError):
+    """The mobile number is not a recognizable Iranian phone (maps to HTTP 409
+    on registration; routers reusing it elsewhere may catch and rewrap)."""
+
+    def __init__(self, raw: str) -> None:
+        super().__init__(f"'{raw}' is not a valid Iranian mobile number")
+        self.raw = raw
+
+
+class OtpInvalid(AuthError):
+    """OTP is missing, wrong, expired, exhausted, or already consumed."""
+
+    def __init__(self, reason: str = "OTP code is invalid or expired") -> None:
+        super().__init__(reason)
+
+
+class OtpResendTooSoon(ConflictError):
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__(
+            f"Please wait {retry_after_seconds}s before requesting a new code"
+        )
+        self.retry_after_seconds = retry_after_seconds
+
+
 class InactiveUser(ForbiddenError):
     def __init__(self) -> None:
         super().__init__("This user account is inactive")

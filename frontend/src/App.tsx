@@ -64,6 +64,19 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { PRODUCTS, CATEGORIES, TRUST_BADGES, FOOD_CATEGORIES, NAV_CATEGORIES } from './constants';
 import { fetchProducts } from './api';
+import {
+  ApiError,
+  completePasswordReset as apiCompletePasswordReset,
+  getMe,
+  login as apiLogin,
+  logout as apiLogout,
+  register as apiRegister,
+  requestLoginOtp as apiRequestLoginOtp,
+  requestPasswordReset as apiRequestPasswordReset,
+  tokens,
+  User as AuthUser,
+  verifyLoginOtp as apiVerifyLoginOtp,
+} from './auth';
 import { Product, Category } from './types';
 
 const toPersianDigits = (num: number | string | undefined | null) => {
@@ -77,6 +90,14 @@ const toPersianDigits = (num: number | string | undefined | null) => {
   }
   return str.replace(/[0-9]/g, (w) => idToFa[parseInt(w, 10)]);
 };
+
+/** Normalize Persian (۰-۹) and Arabic-Indic (٠-٩) digits to ASCII 0-9. Iranian
+ *  keyboards routinely emit Persian digits; without this any digit-aware
+ *  comparison (captcha, OTP code, phone validation) silently fails. */
+const toEnglishDigits = (s: string): string =>
+  s
+    .replace(/[۰-۹]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0x06F0 + 0x30))
+    .replace(/[٠-٩]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0x0660 + 0x30));
 
 // Note: SEARCH_DATA was moved inside App component to avoid module load issues
 
@@ -1877,15 +1898,18 @@ const HomeView = ({
   );
 };
 
-const AuthView = ({ 
-  setView, 
-  setIsLoggedIn 
-}: { 
-  setView: (v: any) => void, 
-  setIsLoggedIn: (s: any) => void 
+const AuthView = ({
+  setView,
+  onAuthSuccess,
+}: {
+  setView: (v: any) => void,
+  onAuthSuccess: (user: AuthUser) => void,
 }) => {
-  const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
-  
+  const [mode, setMode] = useState<'login' | 'signup' | 'forgot' | 'phone-otp'>('login');
+  // OTP-driven flows (forgot, phone-otp) are 2-step: collect phone → collect code.
+  const [otpStep, setOtpStep] = useState<'phone' | 'code'>('phone');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   // Local Toast notification
   const [toast, setToast] = useState<string | null>(null);
   const triggerToastLocal = (msg: string) => {
@@ -1899,6 +1923,11 @@ const AuthView = ({
   const [emailOrPhone, setEmailOrPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');           // signup phone
+  const [otpMobile, setOtpMobile] = useState('');   // forgot / phone-otp phone
+  const [otpCode, setOtpCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
   const [captchaInput, setCaptchaInput] = useState('');
   const [captchaCode, setCaptchaCode] = useState('');
 
@@ -1919,28 +1948,113 @@ const AuthView = ({
       setConfirmPassword('');
       setCaptchaInput('');
     }
+    // Reset OTP sub-state whenever the top-level mode changes.
+    setOtpStep('phone');
+    setOtpCode('');
+    setNewPassword('');
   }, [mode]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const apiErrorToFa = (err: unknown, context: 'login' | 'signup' | 'otp' = 'login'): string => {
+    if (err instanceof ApiError) {
+      if (err.status === 401) {
+        return context === 'otp'
+          ? 'کد وارد شده اشتباه یا منقضی شده است ❌'
+          : 'ایمیل یا رمز عبور اشتباه است ❌';
+      }
+      if (err.status === 409) {
+        // ConflictError covers both "already registered" and "invalid phone" and "resend too soon".
+        if (err.message.toLowerCase().includes('phone')) return 'این شماره موبایل قبلاً ثبت‌نام شده یا فرمت آن نادرست است ❌';
+        if (err.message.toLowerCase().includes('wait')) return 'برای ارسال کد جدید کمی صبر کنید ⏳';
+        return 'این ایمیل قبلاً ثبت‌نام شده است ❌';
+      }
+      if (err.status === 422) return 'فرمت اطلاعات وارد شده صحیح نیست ❌';
+      if (err.status === 429) return 'تلاش‌های زیادی انجام شده؛ لطفاً کمی صبر کنید ⏳';
+      return err.message;
+    }
+    return 'ارتباط با سرور برقرار نشد. لطفاً مجدداً تلاش کنید ❌';
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+    if (isSubmitting) return;
+
     if (mode === 'signup') {
-      // 1. Password repeat validation
       if (password !== confirmPassword) {
         triggerToastLocal('تکرار رمز عبور با رمز عبور اصلی مطابقت ندارد! ❌');
         return;
       }
-      // 2. Client-side security Captcha validation
-      if (captchaInput.trim().toUpperCase() !== captchaCode) {
+      if (toEnglishDigits(captchaInput.trim()).toUpperCase() !== captchaCode) {
         triggerToastLocal('کد امنیتی صحیح نیست! لطفا مجدد تلاش کنید ❌');
         generateCaptcha();
         return;
       }
     }
 
-    setIsLoggedIn(true);
-    setView('account');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setIsSubmitting(true);
+    try {
+      if (mode === 'login') {
+        const email = emailOrPhone.trim().toLowerCase();
+        const user = await apiLogin(email, password);
+        onAuthSuccess(user);
+        setView('account');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+
+      if (mode === 'signup') {
+        const email = emailOrPhone.trim().toLowerCase();
+        await apiRegister({
+          email,
+          password,
+          fullName: fullName.trim(),
+          phone: toEnglishDigits(phone.trim()),
+        });
+        const user = await apiLogin(email, password);
+        onAuthSuccess(user);
+        setView('account');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+
+      const mobile = toEnglishDigits(otpMobile.trim());
+      const code = toEnglishDigits(otpCode.trim());
+
+      if (mode === 'phone-otp') {
+        if (otpStep === 'phone') {
+          await apiRequestLoginOtp(mobile);
+          setOtpStep('code');
+          triggerToastLocal('کد تأیید برای شما ارسال شد ✅');
+        } else {
+          const user = await apiVerifyLoginOtp(mobile, code);
+          onAuthSuccess(user);
+          setView('account');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+        return;
+      }
+
+      // mode === 'forgot'
+      if (otpStep === 'phone') {
+        await apiRequestPasswordReset(mobile);
+        setOtpStep('code');
+        triggerToastLocal('کد بازیابی برای شما ارسال شد ✅');
+      } else {
+        if (newPassword !== confirmPassword) {
+          triggerToastLocal('تکرار رمز عبور جدید مطابقت ندارد ❌');
+          return;
+        }
+        const user = await apiCompletePasswordReset(mobile, code, newPassword);
+        onAuthSuccess(user);
+        setView('account');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    } catch (err) {
+      const ctx = (mode === 'phone-otp' || mode === 'forgot') && otpStep === 'code' ? 'otp' : mode === 'signup' ? 'signup' : 'login';
+      triggerToastLocal(apiErrorToFa(err, ctx));
+      if (mode === 'signup') generateCaptcha();
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -1975,36 +2089,121 @@ const AuthView = ({
               </div>
             </div>
             <h2 className="text-2xl font-black text-slate-800">
-              {mode === 'login' ? 'خوش آمدید' : mode === 'signup' ? 'ساخت حساب کاربری' : 'بازیابی رمز عبور'}
+              {mode === 'login' ? 'خوش آمدید'
+                : mode === 'signup' ? 'ساخت حساب کاربری'
+                : mode === 'phone-otp' ? 'ورود با کد یکبارمصرف'
+                : 'بازیابی رمز عبور'}
             </h2>
             <p className="text-xs font-bold text-slate-400">
-              {mode === 'login' ? 'به خانواده پِت‌وان خوش آمدید' : mode === 'signup' ? 'به دنیای حیوانات خانگی بپیوندید' : 'لینک بازیابی به ایمیل شما ارسال می‌شود'}
+              {mode === 'login' ? 'به خانواده پِت‌وان خوش آمدید'
+                : mode === 'signup' ? 'به دنیای حیوانات خانگی بپیوندید'
+                : otpStep === 'phone' ? 'شماره موبایل خود را وارد کنید تا کد برایتان ارسال شود'
+                : 'کد ارسال‌شده به موبایلتان را وارد کنید'}
             </p>
           </div>
 
           <form className="space-y-4" onSubmit={handleSubmit}>
-            <div className="space-y-1">
-              <label className="text-[10px] font-black text-slate-400 mr-4">ایمیل یا شماره موبایل</label>
-              <input 
-                type="text" 
-                placeholder="name@example.com"
-                value={emailOrPhone}
-                onChange={(e) => setEmailOrPhone(e.target.value)}
-                className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold focus:ring-2 focus:ring-brand-orange/20 transition-all text-right"
-                required
-              />
-            </div>
-            
-            {mode !== 'forgot' && (
+            {mode === 'signup' && (
+              <div className="space-y-1 animate-fade-in">
+                <label className="text-[10px] font-black text-slate-400 mr-4">نام و نام خانوادگی</label>
+                <input
+                  type="text"
+                  placeholder="مثلاً علی رضایی"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold focus:ring-2 focus:ring-brand-orange/20 transition-all text-right"
+                  required
+                  minLength={1}
+                  maxLength={255}
+                />
+              </div>
+            )}
+
+            {(mode === 'login' || mode === 'signup') && (
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 mr-4">ایمیل</label>
+                <input
+                  type="email"
+                  inputMode="email"
+                  placeholder="name@example.com"
+                  value={emailOrPhone}
+                  onChange={(e) => setEmailOrPhone(e.target.value)}
+                  className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold focus:ring-2 focus:ring-brand-orange/20 transition-all text-right"
+                  required
+                  dir="ltr"
+                />
+              </div>
+            )}
+
+            {mode === 'signup' && (
+              <div className="space-y-1 animate-fade-in">
+                <label className="text-[10px] font-black text-slate-400 mr-4">شماره موبایل</label>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  placeholder="09123456789"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold focus:ring-2 focus:ring-brand-orange/20 transition-all text-right"
+                  required
+                  dir="ltr"
+                  maxLength={20}
+                />
+              </div>
+            )}
+
+            {(mode === 'phone-otp' || mode === 'forgot') && (
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 mr-4">شماره موبایل</label>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  placeholder="09123456789"
+                  value={otpMobile}
+                  onChange={(e) => setOtpMobile(e.target.value)}
+                  className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold focus:ring-2 focus:ring-brand-orange/20 transition-all text-right disabled:bg-slate-100 disabled:text-slate-500"
+                  required
+                  dir="ltr"
+                  maxLength={20}
+                  disabled={otpStep === 'code'}
+                />
+              </div>
+            )}
+
+            {(mode === 'phone-otp' || mode === 'forgot') && otpStep === 'code' && (
+              <div className="space-y-1 animate-fade-in">
+                <label className="text-[10px] font-black text-slate-400 mr-4">کد تأیید</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  placeholder="کد ۶ رقمی"
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(toEnglishDigits(e.target.value).replace(/\D/g, ''))}
+                  className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-base font-black focus:ring-2 focus:ring-brand-orange/20 transition-all text-center tracking-[0.5em]"
+                  required
+                  maxLength={8}
+                  dir="ltr"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => { setOtpStep('phone'); setOtpCode(''); }}
+                  className="text-[10px] font-black text-slate-400 hover:text-brand-orange mr-4 transition-colors"
+                >
+                  ← تغییر شماره موبایل
+                </button>
+              </div>
+            )}
+
+            {mode === 'login' && (
               <div className="space-y-1">
                 <div className="flex items-center justify-between px-4">
                   <label className="text-[10px] font-black text-slate-400">رمز عبور</label>
-                  {mode === 'login' && (
-                    <button type="button" onClick={() => setMode('forgot')} className="text-[10px] font-black text-brand-orange hover:underline">فراموشی رمز؟</button>
-                  )}
+                  <button type="button" onClick={() => setMode('forgot')} className="text-[10px] font-black text-brand-orange hover:underline">فراموشی رمز؟</button>
                 </div>
-                <input 
-                  type="password" 
+                <input
+                  type="password"
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -2015,10 +2214,54 @@ const AuthView = ({
             )}
 
             {mode === 'signup' && (
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 mr-4">رمز عبور</label>
+                <input
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold focus:ring-2 focus:ring-brand-orange/20 transition-all text-right"
+                  required
+                  minLength={8}
+                />
+              </div>
+            )}
+
+            {mode === 'forgot' && otpStep === 'code' && (
+              <div className="space-y-1 animate-fade-in">
+                <label className="text-[10px] font-black text-slate-400 mr-4">رمز عبور جدید</label>
+                <input
+                  type="password"
+                  placeholder="حداقل ۸ کاراکتر"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold focus:ring-2 focus:ring-brand-orange/20 transition-all text-right"
+                  required
+                  minLength={8}
+                />
+              </div>
+            )}
+
+            {mode === 'signup' && (
               <div className="space-y-1 animate-fade-in">
                 <label className="text-[10px] font-black text-slate-400 mr-4">تکرار رمز عبور</label>
-                <input 
-                  type="password" 
+                <input
+                  type="password"
+                  placeholder="••••••••"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold focus:ring-2 focus:ring-brand-orange/20 transition-all text-right"
+                  required
+                />
+              </div>
+            )}
+
+            {mode === 'forgot' && otpStep === 'code' && (
+              <div className="space-y-1 animate-fade-in">
+                <label className="text-[10px] font-black text-slate-400 mr-4">تکرار رمز عبور جدید</label>
+                <input
+                  type="password"
                   placeholder="••••••••"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
@@ -2044,7 +2287,7 @@ const AuthView = ({
                 
                 {/* Visual Captcha Row */}
                 <div className="flex items-center justify-between gap-4">
-                  <div className="relative h-14 w-36 bg-slate-100 rounded-2xl border border-slate-200 flex items-center justify-around px-2 select-none overflow-hidden shrink-0" style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(235, 94, 40, 0.05) 10px, rgba(235, 94, 40, 0.05) 20px)' }}>
+                  <div dir="ltr" className="relative h-14 w-36 bg-slate-100 rounded-2xl border border-slate-200 flex items-center justify-around px-2 select-none overflow-hidden shrink-0" style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(235, 94, 40, 0.05) 10px, rgba(235, 94, 40, 0.05) 20px)' }}>
                     {/* Background Noise Grid/Lines */}
                     <div className="absolute inset-0 pointer-events-none opacity-20">
                       <div className="absolute top-1/4 left-0 right-0 h-[2.5px] bg-brand-orange transform rotate-3" />
@@ -2107,10 +2350,40 @@ const AuthView = ({
               </div>
             )}
 
-            <button type="submit" className="w-full btn-primary py-4 rounded-2xl text-base font-black shadow-lg shadow-brand-orange/30">
-              {mode === 'login' ? 'ورود به حساب' : mode === 'signup' ? 'ثبت‌نام در نظام' : 'ارسال لینک بازیابی'}
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full btn-primary py-4 rounded-2xl text-base font-black shadow-lg shadow-brand-orange/30 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isSubmitting
+                ? 'در حال پردازش...'
+                : mode === 'login' ? 'ورود به حساب'
+                : mode === 'signup' ? 'ثبت‌نام در نظام'
+                : otpStep === 'phone' ? 'ارسال کد تأیید'
+                : mode === 'phone-otp' ? 'تأیید کد و ورود'
+                : 'تنظیم رمز جدید و ورود'}
             </button>
           </form>
+
+          {mode === 'login' && (
+            <button
+              type="button"
+              onClick={() => setMode('phone-otp')}
+              className="w-full py-3.5 rounded-2xl text-xs font-black text-brand-orange bg-orange-50 hover:bg-orange-100 transition-all"
+            >
+              ورود با کد یکبارمصرف (پیامکی)
+            </button>
+          )}
+
+          {mode === 'phone-otp' && (
+            <button
+              type="button"
+              onClick={() => setMode('login')}
+              className="w-full py-3.5 rounded-2xl text-xs font-black text-slate-600 bg-slate-50 hover:bg-slate-100 transition-all"
+            >
+              ← ورود با ایمیل و رمز عبور
+            </button>
+          )}
 
           <div className="relative text-center">
             <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100"></div></div>
@@ -2118,11 +2391,11 @@ const AuthView = ({
           </div>
 
           <div className="text-center">
-             <button 
-               onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}
+             <button
+               onClick={() => setMode(mode === 'signup' ? 'login' : 'signup')}
                className="text-xs font-black text-slate-600 hover:text-brand-orange transition-colors"
               >
-               {mode === 'login' ? 'حساب کاربری ندارید؟ ثبت‌نام کنید' : 'قبلاً ثبت‌نام کرده‌اید؟ وارد شوید'}
+               {mode === 'signup' ? 'قبلاً ثبت‌نام کرده‌اید؟ وارد شوید' : 'حساب کاربری ندارید؟ ثبت‌نام کنید'}
              </button>
           </div>
         </div>
@@ -2131,17 +2404,20 @@ const AuthView = ({
   );
 };
 
-const AccountDashboard = ({ 
-  setIsLoggedIn, 
-  setView, 
+const AccountDashboard = ({
+  onLogout,
+  user,
+  setView,
   setSelectedCategory,
   setCartCount
-}: { 
-  setIsLoggedIn: (s: any) => void, 
-  setView: (v: any) => void, 
+}: {
+  onLogout: () => Promise<void> | void,
+  user: AuthUser | null,
+  setView: (v: any) => void,
   setSelectedCategory: (c: any) => void,
   setCartCount?: React.Dispatch<React.SetStateAction<number>>
 }) => {
+  void user; // reserved for upcoming profile-aware UI; binding kept to silence unused-prop warnings
   const [tab, setTab] = useState<'overview' | 'orders' | 'pets' | 'wishlist' | 'addresses' | 'settings'>('overview');
   
   // Persisted Pets State
@@ -2575,8 +2851,8 @@ const AccountDashboard = ({
                   </div>
                </div>
                <div className="mt-4 sm:mt-8 pt-4 sm:pt-6 border-t border-slate-50">
-                  <button 
-                    onClick={() => { setIsLoggedIn(false); setView('home'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                  <button
+                    onClick={() => { onLogout(); }}
                     className="w-full py-3 sm:py-4 text-[11px] sm:text-xs font-black text-red-500 bg-red-50 hover:bg-red-100 rounded-xl sm:rounded-2xl transition-all flex items-center justify-center gap-2"
                   >
                     خروج از حساب کاربری
@@ -2596,8 +2872,8 @@ const AccountDashboard = ({
                    {s.name}
                  </button>
                ))}
-                <button 
-                 onClick={() => { setIsLoggedIn(false); setView('home'); }}
+                <button
+                 onClick={() => { onLogout(); }}
                  className="w-full flex items-center gap-2 sm:gap-3 p-3 sm:p-4 rounded-xl sm:rounded-2xl text-[11px] sm:text-xs font-black hidden"
                 >
                   <X size={16} />
@@ -4860,13 +5136,35 @@ export default function App() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [view, setView] = useState<'home' | 'shop' | 'auth' | 'account' | 'admin'>('home');
-  const [isLoggedIn, setIsLoggedIn] = useState(() => {
-    return localStorage.getItem('petone_is_logged_in') === 'true';
-  });
+  // Auth state derives from the presence of an access token in localStorage; the
+  // `user` object is loaded lazily via /auth/me on mount and after login.
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(() => tokens.getAccess() !== null);
 
+  // On boot, if we have a stored token, validate it by loading the profile.
+  // authFetch transparently refreshes on 401; on refresh failure it clears
+  // tokens and dispatches petone:auth-expired (handled below).
   useEffect(() => {
-    localStorage.setItem('petone_is_logged_in', isLoggedIn ? 'true' : 'false');
-  }, [isLoggedIn]);
+    if (!tokens.getAccess()) return;
+    getMe()
+      .then((u) => { setUser(u); setIsLoggedIn(true); })
+      .catch(() => { /* session-expired event handler will reset state */ });
+  }, []);
+
+  // Reset auth state when the auth module signals the session is unrecoverable.
+  useEffect(() => {
+    const onExpired = () => { setUser(null); setIsLoggedIn(false); };
+    window.addEventListener('petone:auth-expired', onExpired);
+    return () => window.removeEventListener('petone:auth-expired', onExpired);
+  }, []);
+
+  const handleLogout = React.useCallback(async () => {
+    await apiLogout();
+    setUser(null);
+    setIsLoggedIn(false);
+    setView('home');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
   
@@ -5207,9 +5505,9 @@ export default function App() {
             foodCategories={foodCategories}
           />
         ) : view === 'auth' ? (
-          <AuthView 
-            setView={setView} 
-            setIsLoggedIn={setIsLoggedIn} 
+          <AuthView
+            setView={setView}
+            onAuthSuccess={(u) => { setUser(u); setIsLoggedIn(true); }}
           />
         ) : view === 'admin' ? (
           isAdmin ? (
@@ -5266,10 +5564,11 @@ export default function App() {
             </div>
           )
         ) : (
-          <AccountDashboard 
-            setIsLoggedIn={setIsLoggedIn} 
-            setView={setView} 
-            setSelectedCategory={setSelectedCategory} 
+          <AccountDashboard
+            onLogout={handleLogout}
+            user={user}
+            setView={setView}
+            setSelectedCategory={setSelectedCategory}
             setCartCount={setCartCount}
           />
         )}

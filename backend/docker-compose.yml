@@ -44,12 +44,12 @@ services:
         condition: service_completed_successfully
 
   frontend:
-    image: node:20-alpine
+    image: node:20
     working_dir: /app
-    command: sh -c "npm install && npm run dev"
+    command: sh -c "npm ci --no-audit --no-fund && npm run dev"
     volumes:
       - ../frontend:/app
-      - /app/node_modules
+      - frontend-node-modules:/app/node_modules
     ports:
       - "3000:3000"
     depends_on:
@@ -57,3 +57,4 @@ services:
 
 volumes:
   petone-db-data:
+  frontend-node-modules:

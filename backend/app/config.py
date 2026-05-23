@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     secret_key: str = "dev-only-insecure-secret-change-me"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
-    refresh_token_expire_days: int = 7
+    refresh_token_expire_days: int = 10
 
     # Payment gateway — set PAYMENT_GATEWAY=shaparak and the SHAPARAK_* values
     # in production once the integration URL is available.
@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     shaparak_base_url: str = ""
     shaparak_merchant_id: str = ""
     frontend_url: str = "http://localhost:3000"
+
+    # SMS.ir — OTP provider. When key or template id is empty the SMS layer logs
+    # the code instead of sending, so dev/test never burns real SMS credits.
+    smsir_api_key: str = ""
+    smsir_template_id: int = 0
+    smsir_base_url: str = "https://api.sms.ir"
+    otp_code_length: int = 6
+    otp_ttl_seconds: int = 300
+    otp_max_attempts: int = 5
+    otp_resend_cooldown_seconds: int = 60
 
     cors_origins: list[str] = [
         "http://localhost:3000",

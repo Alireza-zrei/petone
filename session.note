@@ -1,0 +1,146 @@
+# Session log
+
+Running log of Claude Code sessions on this repo. Append a new entry at the top each session — most recent first. Keep entries short: what changed, where we left off, what's queued next.
+
+Format per entry:
+```
+## YYYY-MM-DD — short title
+**Did:** bullets of what was actually done (files touched, commands run, decisions made)
+**State:** clean / dirty / blocked — current working state
+**Next:** what to pick up on the next session
+```
+
+---
+
+## 2026-05-23 — Persian/Arabic digit normalization across CAPTCHA, OTP code, and phone
+**Did:**
+- Diagnosed: user reported CAPTCHA always failed with "کد امنیتی صحیح نیست". Root cause was Persian-keyboard input — the user typed `۲۳۴۵۶۷۸۹` while the CAPTCHA pool is ASCII `23456789…` and `.toUpperCase()` doesn't normalize digit code points. Same root cause would have bitten OTP code entry (`\D` filter strips Persian digits to empty string) and phone-number submission (backend's `normalize_iranian_mobile` rejects Persian-digit phones because `"۹" != "9"`).
+- Added `toEnglishDigits(s)` helper in `frontend/src/App.tsx` covering Persian (`۰-۹`, U+06F0–06F9) and Arabic-Indic (`٠-٩`, U+0660–0669) digits.
+- Applied at all three frontend sites: CAPTCHA validation, OTP code `onChange` (before the `\D` strip), and the phone/mobile values handed to `apiRegister`/`apiRequestLoginOtp`/`apiVerifyLoginOtp`/`apiRequestPasswordReset`/`apiCompletePasswordReset`.
+- Mirrored on the backend: `app/domains/users/phone.py` now runs `_to_ascii_digits` before regex stripping, so even a non-frontend client (curl, mobile app) can send `۰۹۱۲۴۳۰۱۱۵۹` and we'll accept it.
+- New test `test_register_accepts_persian_digit_phone` locks the backend behavior. 22/22 user-auth tests pass. Frontend `tsc --noEmit` clean.
+
+**State:** still dirty (auth and OTP work from earlier today is uncommitted). New modifications: `frontend/src/App.tsx`, `backend/app/domains/users/phone.py`, `backend/tests/test_users.py`.
+
+**Next:** back to the cart wire-up.
+
+---
+
+## 2026-05-23 — OTP via SMS.ir: phone login + password reset, end-to-end
+**Did:**
+- **Backend:**
+  - `phone` column added to `users` (required, 10-digit Iranian, unique). New `otp_codes` table (mobile, sha256 `code_hash`, purpose ∈ {`login`, `password_reset`}, `expires_at`, `consumed_at`, `attempts`). Migration `0008_phone_and_otp` — verified from fresh DB.
+  - New module set in `app/domains/users/`:
+    - `phone.py` — accepts `09…`, `+98…`, `0098…`, `98…`, or bare `9…`, normalizes to `9XXXXXXXXX`; raises `InvalidPhoneNumber` otherwise (409).
+    - `sms.py` — SMS.ir `POST /v1/send/verify` client over `httpx.AsyncClient`. When `SMSIR_API_KEY` or `SMSIR_TEMPLATE_ID` is unset (dev/CI), it logs the code at WARNING instead of sending — so we never burn real SMS credits in tests, and devs can copy codes from the log.
+    - `otp.py` — code generation (cryptographically random 6 digits), sha256 hash on store, 5-minute TTL, 5-attempt cap, 60-second per-phone resend cooldown. Single uniform `OtpInvalid` error so callers can't distinguish "wrong code" from "expired" from "no pending OTP" via response shape (anti-enumeration).
+  - New auth flows on `app/domains/users/service.py`: `register` now requires phone; `start_phone_login` / `complete_phone_login` (passwordless login); `start_password_reset` / `complete_password_reset` (updates password + revokes all existing refresh tokens for defense in depth).
+  - New endpoints: `POST /auth/login/otp/request`, `POST /auth/login/otp/verify`, `POST /auth/password-reset/request`, `POST /auth/password-reset/verify`. Request endpoints always return **202** regardless of whether the phone is registered (enumeration protection); only verify endpoints surface OTP errors.
+  - New exceptions: `PhoneAlreadyRegistered`, `InvalidPhoneNumber`, `OtpInvalid`, `OtpResendTooSoon`. All map to existing handlers (409, 409, 401, 409 respectively).
+  - Added `httpx==0.27.2` to runtime `requirements.txt` (was dev-only).
+  - Config additions: `SMSIR_API_KEY` (placeholder), `SMSIR_TEMPLATE_ID` (placeholder), `SMSIR_BASE_URL`, `OTP_CODE_LENGTH`, `OTP_TTL_SECONDS`, `OTP_MAX_ATTEMPTS`, `OTP_RESEND_COOLDOWN_SECONDS`. **API key NOT committed** — placeholder in `.env.example` only.
+  - **API key the user pasted in chat should be considered compromised; user must rotate from SMS.ir panel.** Real key goes only in `backend/.env` (gitignored).
+  - Tests in `tests/test_users.py`: added phone-normalization test, duplicate-phone test, invalid-phone test, plus 5 new OTP flow tests (full login flow, wrong code, single-use, resend cooldown, full reset flow, reset revokes existing refresh tokens). `tests/conftest.py` admin/user fixtures updated with phone. Used a `fixed_otp` monkeypatch on `app.domains.users.otp.generate_otp_code` so verify-step tests are deterministic. **21/21 user-auth tests pass; full suite 51 pass + 2 still-pre-existing cart failures.**
+- **Frontend:**
+  - `auth.ts`: `register` now takes `phone`. New helpers `requestLoginOtp`, `verifyLoginOtp`, `requestPasswordReset`, `completePasswordReset` (both verify helpers fetch `/auth/me` after storing the token pair so callers get a `User`).
+  - `AuthView`:
+    - New `phone` input on signup (required, `dir="ltr"`, numeric input mode).
+    - Forgot-password mode is now real — 2-step: (1) enter phone → request OTP → (2) enter code + new password + confirm → verify and auto-login.
+    - New `phone-otp` mode: 2-step passwordless login (phone → code → tokens).
+    - Mode-switch buttons added: from `login` you can hop into `phone-otp`; from `phone-otp` back to email/password login. The `forgot` link still lives under the login password field.
+    - OTP code input is `inputMode="numeric"` with auto-strip of non-digits, large tracking, autoFocused.
+    - Status-aware Persian error toasts now also recognize cooldown (409 with "wait" in message) and OTP context (401 → "code wrong/expired").
+- **End-to-end smoke test against live uvicorn:**
+  - Register `09124301159` → response shows normalized `phone: "9124301159"` ✓
+  - `POST /auth/login/otp/request` → 202, code lands in JSON log (`SMS.ir not configured; OTP for mobile=… would be: 433112`) ✓
+  - `POST /auth/login/otp/verify` with that code → token pair ✓
+  - Replay same code → 401 with uniform `OTP code is invalid or expired` ✓
+  - Request OTP for unregistered phone → 202 (no enumeration) ✓
+  - `POST /auth/password-reset/request` → 202; verify with wrong code → 401; verify with correct code → token pair; subsequent login with old password → 401; login with new password → success ✓
+- `npm run lint` clean, `npm run build` clean, `ruff check . --fix` clean.
+
+**State:** dirty. New backend files: `app/domains/users/{phone,sms,otp}.py`, `alembic/versions/0008_phone_and_otp.py`. Modified: `app/{config,exceptions}.py`, `app/domains/users/{models,crud,schemas,service,router}.py`, `tests/{conftest,test_users}.py`, `requirements.txt`, `.env.example`. Frontend: `src/auth.ts` (additions), `src/App.tsx` (AuthView reshaped). All prior-session uncommitted changes still uncommitted.
+
+**Gotchas / decisions:**
+- Phone is **required** at signup per user choice. Migration adds it NOT NULL with no default; safe because no production users exist. For a populated DB, the proper pattern is add-nullable → backfill → set-NOT-NULL.
+- "OTP request always 202" means a user who typoed a phone won't see an error — they'll just never get a code. Acceptable trade-off for enumeration protection. Cooldown errors (409) DO surface, so legitimate users hitting their own resend get clear feedback.
+- Cooldown only throttles unconsumed OTPs; once verified, the next request immediately returns 202. By design.
+- `OtpInvalid` is deliberately one-shot uniform — no different responses for "wrong code" vs "expired" vs "no pending OTP". `OtpResendTooSoon` is the exception (different status, only triggers on the request side).
+- The OTP code is sha256-hashed before storage; no plaintext code anywhere. Tests monkeypatch `generate_otp_code` to a fixed value so the verify step is deterministic.
+
+**Action items for the user:**
+- **Rotate the SMS.ir API key** that was pasted into the chat earlier (treat as compromised).
+- Once your SMS.ir template is approved, paste the templateId and I'll wire it in `.env`.
+- `[[project-phone-otp]]` memory updated to reflect that the OTP provider is locked in and the phone column is live.
+
+**Next:**
+- Cart UI against `/cart` endpoints (uses `authFetch`). Replace `cartCount: number` with a real cart-items state; rebuild add/remove handlers; fix the two pre-existing `test_orders.py` failures along the way.
+- Then orders list + checkout + payment initiate.
+
+---
+
+## 2026-05-23 — Frontend: AuthView wired to backend (register/login/refresh/logout/me)
+**Did:**
+- New `frontend/src/auth.ts`:
+  - `tokens` helper around localStorage keys `petone_access_token` / `petone_refresh_token`.
+  - `register({ email, password, fullName })`, `login(email, password)` (auto-fetches /me), `logout()` (clears tokens locally even if the network call fails), `getMe()`.
+  - `authFetch(path, init)` attaches Bearer header, transparently refreshes once on 401, and rotates tokens. A singleton `refreshPromise` collapses concurrent 401s into a single refresh call. On refresh failure it clears tokens and dispatches `petone:auth-expired`.
+  - `ApiError(status, message)` so the UI can branch on HTTP status.
+- `App.tsx`:
+  - Top-level: dropped the legacy `petone_is_logged_in` flag. `isLoggedIn` initial state derives from `tokens.getAccess() !== null`; on mount we call `getMe()` to validate. Added a `user: AuthUser | null` state. Added `handleLogout` (awaits `apiLogout`, clears state, returns home). Subscribed to `petone:auth-expired` to reset state when refresh fails.
+  - `AuthView`: now takes `onAuthSuccess(user)` instead of `setIsLoggedIn`. New `full_name` input (signup only, required) since backend requires it. Email input is `type="email" dir="ltr"`. Async `handleSubmit` calls `apiRegister` then `apiLogin` for signup, `apiLogin` only for login. Forgot-password still shows a "not wired yet" toast — backend endpoint doesn't exist. Backend errors mapped to Persian toasts by status (401, 409, 422, 429, network). Submit button disabled while in flight; on submission failure during signup the CAPTCHA regenerates.
+  - `AccountDashboard`: now takes `onLogout` + `user` props. The two logout buttons now call `onLogout()` (which hits the backend then clears state).
+- End-to-end smoke test against a live backend on :8765:
+  - register → 201, login → tokens, /auth/me with bearer → 200, refresh → new pair, **replay refresh → 401 "revoked or expired"** (rotation working), logout → 204.
+  - CORS preflight from `Origin: http://localhost:3000` returns the expected `access-control-allow-origin`.
+- `npm run lint` (tsc --noEmit) clean. `npm run build` clean (582 kB / 159 kB gzip — pre-existing chunk-size warning, unchanged).
+
+**State:** dirty. New file `frontend/src/auth.ts`. Modified `frontend/src/App.tsx` (AuthView + AccountDashboard + top-level App auth state). Backend changes from the previous entry are still uncommitted.
+
+**Gotchas / decisions:**
+- Stored token key choice was `localStorage` per user request — XSS-exposed, but matches the rest of the app's persistence pattern and survives reload.
+- The legacy `petone_is_logged_in` localStorage key is now unused; not cleaning it up for existing users (no harm, just orphan data). Same with `petone_is_admin` which gates the secret admin URL — separate flow, untouched.
+- AuthView's "email or phone" label is unchanged on purpose. The field validates as email and submits as email; when the OTP API arrives (see [[project-phone-otp]]) we'll add a phone branch.
+
+**Next:**
+- Cart UI against `/cart` endpoints (uses `authFetch`). Replace `cartCount: number` with a real cart-items state; rebuild add/remove handlers; fix the two pre-existing `test_orders.py` failures from the prior entry along the way.
+- Then orders list + checkout + payment initiate.
+
+---
+
+## 2026-05-23 — Backend: DB-backed refresh tokens + logout + rotation (option 1)
+**Did:**
+- Bumped `REFRESH_TOKEN_EXPIRE_DAYS` default 7 → 10 (`app/config.py`, `.env.example`).
+- Added `RefreshToken` model in `app/domains/users/models.py` (`user_id`, `token_hash`, `expires_at`, `revoked_at`, `created_at`).
+- New Alembic migration `0007_refresh_tokens` — verified clean apply from empty DB; tables now: alembic_version, products, users, carts, cart_items, orders, order_items, payments, refresh_tokens.
+- Added `hash_refresh_token` (sha256) in `app/security.py`; access + refresh JWTs now include a random `jti` claim so two tokens issued in the same second don't collide on the unique `token_hash` index.
+- `users/service.py`: new `_issue_tokens` persists hashed refresh on login + on rotation. `refresh_tokens` now verifies signature → checks DB row (revoked/expired) → revokes-old + issues-new (rotation). New `logout(refresh_token)` revokes the row (idempotent for unknown tokens).
+- `POST /auth/logout` route (204, body `{refresh_token}`).
+- Tests in `tests/test_users.py`: added `test_refresh_rotates_token`, `test_logout_revokes_refresh`, `test_logout_unknown_token_is_idempotent`. All 11 user-auth tests pass.
+- `ruff check . --fix` cleaned import ordering on the new migration (and incidentally on 4 pre-existing files); pytest still green afterward.
+- Project memory saved: phone-OTP API is incoming (don't add `users.phone` column yet — wait for provider).
+
+**State:** dirty — uncommitted changes across `backend/app/config.py`, `backend/app/security.py`, `backend/app/domains/users/{models,crud,service,router}.py`, `backend/tests/test_users.py`, `backend/.env.example`; new file `backend/alembic/versions/0007_refresh_tokens.py`. Ruff also touched import ordering in `alembic/env.py`, `alembic/versions/0003_users.py`, `0005_payments.py`, `0006_product_marketing_fields.py` — drive-by formatting fixes, no behavior change. Backend venv was rebuilt with python3.11 (system python had moved to 3.12 and broke it).
+
+**Pre-existing failures (not from this session):**
+- `tests/test_orders.py::test_add_item_to_cart` and `test_remove_cart_item` — confirmed failing on `main` before my changes (`git stash` + rerun). The remove path leaves stale items in the response; the add path returns 0 instead of 1. Cart service likely needs a fresh query or expire-on-commit handling. Will likely fix as part of the cart frontend wire-up.
+
+**Next:**
+- Wire frontend auth: AuthView → `/auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`. Token storage location still undecided (defaulting to localStorage unless you say otherwise). Field is email-only on submit per [[project-phone-otp]].
+- Then cart UI against `/cart` endpoints (and fix the two pre-existing order-test failures while we're there).
+- Then orders list + checkout + payment initiate.
+
+---
+
+## 2026-05-23 — Bootstrap CLAUDE.md and session log
+**Did:**
+- Explored the repo to understand layout: backend (FastAPI, domain-driven under `app/domains/{products,users,orders,payments}`) and frontend (single-file `src/App.tsx` ~5.7k lines, React 19 + Vite + Tailwind v4, RTL/Persian).
+- Created `/home/alireza/app/CLAUDE.md` with: common backend/frontend commands, domain-layer conventions, exception → HTTP mapping, alembic env.py footgun, async-relationship `lazy="selectin"` note, payment gateway protocol, observability/rate-limit details, test setup, and the gap that CI runs neither pytest nor lint.
+- Created this `session.note` file to track work across future sessions.
+- Confirmed no prior CLAUDE.md, no Cursor rules, no Copilot instructions existed.
+
+**State:** clean — working tree had no uncommitted changes at start; new untracked files this session are `CLAUDE.md` and `session.note`. Nothing committed.
+
+**Next:**
+- Decide whether to commit `CLAUDE.md` (and whether `session.note` should be gitignored or committed).
+- Open items surfaced while reading the code (not addressed): `ShaparakGateway` is a stub awaiting integration URL + credentials; CI workflows don't run `pytest` or `npm run lint` — only compile/import and build.
