@@ -13,6 +13,36 @@ Format per entry:
 
 ---
 
+## 2026-05-26 — Auth/profile/admin polish; mock-data audit
+**By:** alireza
+**Did:**
+- **OTP signup flow** (backend + frontend). Backend: added `OtpPurpose.SIGNUP`, `PhoneSignupVerify` schema, `service.start_phone_signup` (silent-202 on taken phone — enumeration-safe), `service.complete_phone_signup` (verify OTP → create user → tokens), routes `POST /auth/signup/otp/{request,verify}`. Hot-patched into the running container (Docker Hub auth blocked from IR network so `--build` fails — used `docker cp`; rebuild properly once you have DH access). Frontend: 2-step `phone-signup` mode in `AuthView` with toggle buttons mirroring the `login`↔`phone-otp` pattern.
+- **Email/phone login parity.** Backend `LoginRequest.email` → `identifier: str`; `service.authenticate` routes by `@` presence (email or `normalize_iranian_mobile`-ed phone). Frontend: input label "ایمیل یا شماره موبایل", `type=text`, sends `{identifier, password}`. **Breaking change for any other API consumer of `/auth/login`** — must send `identifier`, not `email`.
+- **Profile page wired to real user.** `AccountDashboard` was rendering hardcoded "مهدی محمود" via stale localStorage seed. Fixed: derive `profileData` from `user` prop (with `useEffect([user])` re-sync), settings form converted from `defaultValue=...` to controlled inputs. Frontend `User` type/mapper gained `phone` (backend always returned it).
+- **Per-user dashboard data.** `pets`/`wishlist`/`addresses` localStorage keys now namespaced as `petone_<thing>_<user.id>` so two accounts on same browser don't share data. Mock seed fallbacks removed — new users start empty. Old shared `*_v3` keys orphaned (harmless).
+- **Orders wired to backend.** `auth.ts` got `listMyOrders()` (`authFetch('/orders')`). `AccountDashboard` fetches on `user?.id` change; the hardcoded `۱۲` count + 4 demo `<OrderCard>` JSX nodes replaced with real data / empty state. New `OrderCard` handles all 5 backend statuses (pending/paid/shipped/delivered/cancelled) with Persian labels.
+- **Admin gate is now real auth.** Removed the passcode modal entirely (was bypassing the backend gate with hardcoded `1405`/`admin`/`1234`). `isAdmin` derives from `user.isAdmin` via `useEffect([user])`. URL `/admin` always sets view; the view renders dashboard or a clean "no access" page based on the flag. **Auto-redirect:** `onAuthSuccess` now routes admin users to `/admin` on login (no manual button). All 5 login/signup paths flow through this central decision.
+- **Admin mock-data lies removed.** `orders` admin state: no more 5 fake "کامران امیری"-style seed entries. `stats.totalSales`: dropped fake `+7600000` base. `stats.customersCount`: dropped fake `145 + orders.length * 3` base. Metric sub-text: replaced "رشد ۲۳٪" / "۵۰ کاربر جدید آنلاین" with neutral descriptors. `categories`/`articles` were stripped briefly then reverted at user's request — these stay seeded (NAV_CATEGORIES + 3 sample articles) but their inits now treat empty cached arrays as "no cache" and reseed, to recover from any earlier strip-pass that left an empty in localStorage.
+- **Avatar.** Replaced the hardcoded Unsplash CDN URL with an inline gray-silhouette SVG. No external CDN, neutral for every account.
+- **Frontend 409 messaging fix.** `apiErrorToFa` used to render *every* 409 default as "این ایمیل قبلاً ثبت‌نام شده است". Now detects backend detail prefix (`Phone…` / `Email…`) and routes precisely. Default 409 fallback now neutral.
+- **DB wipe + admin promotion.** Cleared 4 test users + their OTP/refresh rows. New user `keyvan.zalaghi@yahoo.com` (id=9, phone `9126547663`) marked `is_admin=true`.
+- **SMS.ir.** Smoke-tested end-to-end via Iran network; sms.ir returns `status:1` (موفق) with valid messageIds but actual delivery never reached any of 3 test phones — alireza will resolve via sms.ir panel (template approval / blacklist / sender-line binding). App layer is correct, sms.py improvements still in place: param name `CODE` to match `#CODE#` template, richer error logging for HTTPStatusError + connect-timeout.
+
+**State:** dirty — none of the above is committed yet (frontend `App.tsx`, `auth.ts`, backend domains/users `models|schemas|service|router|sms`.py, `backend/docker-compose.yml`, `backend/.env`). Tests not run this session. `backend/.env` contains the real (now-leaked-in-chat) SMS.ir API key — **must rotate before commit** and `.env` is already gitignored.
+
+**Admin panel TODO (in priority order):**
+1. **Admin-scoped backend endpoints — none exist yet.** `GET /orders` returns only the current user's orders, so admin's orders tab and `stats.ordersCount` / `totalSales` show only the admin's own purchases. Need: `GET /admin/orders` (all orders, paginated), `GET /admin/customers` (so `customersCount` stops being 0), `GET /admin/sales/summary` (so totalSales is correctly aggregated). All gated by `Depends(get_current_admin)` (already exists in `app/dependencies.py`).
+2. **Order detail / status mutation.** Backend has `GET /orders/{id}` but no `PATCH /admin/orders/{id}/status`. Admin UI has a status-changer select that currently mutates only localStorage.
+3. **`PATCH /auth/me` (or `PUT /users/me`)** for the regular user settings form. Currently the "ذخیره تغییرات" button only writes to localStorage that nothing reads — toast misleads the user. Same endpoint can serve the admin user-edit flow.
+4. **Real categories/articles persistence.** Both are localStorage-only — admin edits don't survive a browser swap. Either add `/categories` + `/articles` backend domains, or leave as demo seed and document.
+5. **`heroSlides`/`discounts`/`foodCategories`** — same localStorage-only status. Lowest priority since they aren't user-data lies.
+6. **Audit `AccountDashboard` sub-widgets for hardcoded text.** The "AI INSIGHT" recommendations card (`pets[0]?.breed || 'دیفالت'`) shows nonsense for users with no pets — hide the whole card when `pets.length === 0`.
+7. **Customer search results overlay** at `searchData.categories` (line ~5549) is a hardcoded array independent of `categories` state — strip or wire to a real `/search` endpoint.
+
+**Next:** alireza picked "next subject" — undecided at handoff. Suggested order: (a) commit + rotate sms.ir key first; (b) propagate `Order` shape to the rest of the storefront / wire the cart UI to `/cart/*` (the original alireza-track scope from 2026-05-25); (c) then tackle `PATCH /auth/me` since the settings form actively lies right now.
+
+---
+
 ## 2026-05-25 — Two-person split agreed with khashi; tree pushed to main
 **By:** alireza
 **Did:**

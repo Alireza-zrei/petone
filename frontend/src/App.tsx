@@ -1971,10 +1971,16 @@ const AuthView = ({
           : 'ایمیل یا رمز عبور اشتباه است ❌';
       }
       if (err.status === 409) {
-        // ConflictError covers both "already registered" and "invalid phone" and "resend too soon".
-        if (err.message.toLowerCase().includes('phone')) return 'این شماره موبایل قبلاً ثبت‌نام شده یا فرمت آن نادرست است ❌';
-        if (err.message.toLowerCase().includes('wait')) return 'برای ارسال کد جدید کمی صبر کنید ⏳';
-        return 'این ایمیل قبلاً ثبت‌نام شده است ❌';
+        // ConflictError covers a few distinct cases — disambiguate from the
+        // detail prefix so we never mis-attribute "phone taken" as "email taken".
+        const msg = err.message;
+        if (msg.startsWith('Phone')) return 'این شماره موبایل قبلاً ثبت‌نام شده است ❌';
+        if (msg.startsWith('Email')) return 'این ایمیل قبلاً ثبت‌نام شده است ❌';
+        if (msg.toLowerCase().includes('wait')) return 'برای ارسال کد جدید کمی صبر کنید ⏳';
+        if (msg.toLowerCase().includes('invalid') || msg.toLowerCase().includes('phone')) {
+          return 'فرمت شماره موبایل نادرست است ❌';
+        }
+        return 'این اطلاعات قبلاً ثبت شده است ❌';
       }
       if (err.status === 422) return 'فرمت اطلاعات وارد شده صحیح نیست ❌';
       if (err.status === 429) return 'تلاش‌های زیادی انجام شده؛ لطفاً کمی صبر کنید ⏳';
@@ -2005,8 +2011,6 @@ const AuthView = ({
         const identifier = toEnglishDigits(emailOrPhone.trim());
         const user = await apiLogin(identifier, password);
         onAuthSuccess(user);
-        setView('account');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
         return;
       }
 
@@ -2020,8 +2024,6 @@ const AuthView = ({
         });
         const user = await apiLogin(email, password);
         onAuthSuccess(user);
-        setView('account');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
         return;
       }
 
@@ -2040,8 +2042,6 @@ const AuthView = ({
             fullName: fullName.trim(),
           });
           onAuthSuccess(user);
-          setView('account');
-          window.scrollTo({ top: 0, behavior: 'smooth' });
         }
         return;
       }
@@ -2057,8 +2057,6 @@ const AuthView = ({
         } else {
           const user = await apiVerifyLoginOtp(mobile, code);
           onAuthSuccess(user);
-          setView('account');
-          window.scrollTo({ top: 0, behavior: 'smooth' });
         }
         return;
       }
@@ -2075,8 +2073,6 @@ const AuthView = ({
         }
         const user = await apiCompletePasswordReset(mobile, code, newPassword);
         onAuthSuccess(user);
-        setView('account');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     } catch (err) {
       const ctx = (mode === 'phone-otp' || mode === 'forgot' || mode === 'phone-signup') && otpStep === 'code'
@@ -3371,14 +3367,16 @@ const AdminDashboard = ({
   const [selectedSubCatFilter, setSelectedSubCatFilter] = useState('');
 
   // CALCULATE SUMMARY STATS DYNAMICALLY
+  // No fabricated baselines — every counter reflects what's actually in state.
+  // customersCount stays 0 until a real customers endpoint exists.
   const stats = React.useMemo(() => {
     const totalSales = orders
       .filter(o => o.status === 'Completed')
-      .reduce((sum, o) => sum + (o.totalAmount || 0), 0) + 7600000; // base sales setup
+      .reduce((sum, o) => sum + (o.totalAmount || 0), 0);
     return {
       totalSales,
       ordersCount: orders.length,
-      customersCount: 145 + orders.length * 3,
+      customersCount: 0,
       productsCount: products.length,
       couponCount: discounts.filter(d => d.active).length
     };
@@ -3721,10 +3719,10 @@ const AdminDashboard = ({
                 {/* Metrics Cards Grid */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {[
-                    { label: 'فرو ناخالص ممتد 💰', value: stats.totalSales.toLocaleString('fa-IR') + ' تومان', sub: 'رشد ۲۳٪ این هـفته', color: 'border-emerald-500/20 text-emerald-400' },
-                    { label: 'سفارش ثبت شده 📦', value: stats.ordersCount.toLocaleString('fa-IR'), sub: 'تحویل به پست فعال', color: 'border-cyan-500/20 text-cyan-400' },
-                    { label: 'اعضای فعال 👥', value: stats.customersCount.toLocaleString('fa-IR') + ' نفر', sub: '۵۰ کاربر جدید آنلاین', color: 'border-indigo-500/20 text-indigo-400' },
-                    { label: 'محصولات فعال 🏷️', value: stats.productsCount.toLocaleString('fa-IR') + ' عدد', sub: 'در دسته‌بندی سگ و گربه', color: 'border-orange-500/20 text-brand-orange' }
+                    { label: 'فروش ناخالص 💰', value: stats.totalSales.toLocaleString('fa-IR') + ' تومان', sub: 'مجموع سفارشات تکمیل‌شده', color: 'border-emerald-500/20 text-emerald-400' },
+                    { label: 'سفارش ثبت شده 📦', value: stats.ordersCount.toLocaleString('fa-IR'), sub: 'تعداد سفارشات سامانه', color: 'border-cyan-500/20 text-cyan-400' },
+                    { label: 'اعضای فعال 👥', value: stats.customersCount.toLocaleString('fa-IR') + ' نفر', sub: 'در انتظار اتصال به API', color: 'border-indigo-500/20 text-indigo-400' },
+                    { label: 'محصولات فعال 🏷️', value: stats.productsCount.toLocaleString('fa-IR') + ' عدد', sub: 'موجود در کاتالوگ', color: 'border-orange-500/20 text-brand-orange' }
                   ].map((metric, i) => (
                     <div key={i} className={`bg-slate-950 p-5 rounded-3xl border ${metric.color.split(' ')[0]} text-right space-y-2 shadow-sm`}>
                       <span className="text-[10px] text-slate-400 font-bold block">{metric.label}</span>
@@ -5291,12 +5289,21 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
   
+  // Admin gate is driven by the authenticated user's is_admin flag (loaded via
+  // /auth/me). The legacy localStorage 'petone_is_admin' key is kept only as a
+  // transient hint so the UI doesn't flicker between page load and the /auth/me
+  // resolution; on every user change below we re-sync from the real flag.
   const [isAdmin, setIsAdmin] = useState<boolean>(() => {
     return localStorage.getItem('petone_is_admin') === 'true';
   });
-  const [showAdminLoginModal, setShowAdminLoginModal] = useState(false);
-  const [adminPasscode, setAdminPasscode] = useState('');
-  const [adminLoginError, setAdminLoginError] = useState('');
+  useEffect(() => {
+    const flag = user?.isAdmin === true;
+    setIsAdmin(flag);
+    if (flag) localStorage.setItem('petone_is_admin', 'true');
+    else localStorage.removeItem('petone_is_admin');
+  }, [user]);
+  // (The legacy admin-passcode modal was removed; admin access is granted
+  // purely by the authenticated user's is_admin flag from /auth/me.)
 
   // Dynamic system states
   const [products, setProducts] = useState<Product[]>([]);
@@ -5312,12 +5319,14 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.some(c => c.id === 'birds')) {
-          return NAV_CATEGORIES;
+        // Empty cached array → treat as no cache and reseed. Prevents stale
+        // empty state (e.g. from an earlier strip pass) from sticking forever.
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          if (parsed.some(c => c.id === 'birds')) return NAV_CATEGORIES;
+          return parsed;
         }
-        return parsed;
       } catch (e) {
-        return NAV_CATEGORIES;
+        /* fall through */
       }
     }
     return NAV_CATEGORIES;
@@ -5348,7 +5357,16 @@ export default function App() {
 
   const [articles, setArticles] = useState(() => {
     const saved = localStorage.getItem('petone_articles');
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // Empty cached array → reseed. Same defensive pattern as categories
+        // above so a previous stripped state doesn't render an empty section.
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch {
+        /* fall through */
+      }
+    }
     return [
       {
         id: 'art1',
@@ -5383,85 +5401,11 @@ export default function App() {
     ];
   });
 
-  const [orders, setOrders] = useState(() => {
-    const saved = localStorage.getItem('petone_orders');
-    if (saved) return JSON.parse(saved);
-    return [
-      { 
-        id: 'ORD-1002', 
-        customerName: 'کامران امیری', 
-        customerPhone: '۰۹۱۲۳۴۵۶۷۸۹', 
-        date: '۱۴۰۵/۰۲/۲۹', 
-        totalAmount: 1850000, 
-        status: 'Completed', 
-        itemsCount: 3, 
-        paymentMethod: 'پرداخت آنلاین',
-        address: 'تهران، خیابان ولیعصر، کوچه تورج، پلاک ۱۲، واحد ۳',
-        items: [
-          { name: 'غذای خشک سگ رویال کنین مدل Mini Adult', quantity: 1, price: 1650000 },
-          { name: 'پک تشویقی مدادی سگ برند ونپی', quantity: 2, price: 100000 }
-        ]
-      },
-      { 
-        id: 'ORD-1003', 
-        customerName: 'مریم حسینی', 
-        customerPhone: '۰۹۱۸۷۶۵۴۳۲۱', 
-        date: '۱۴۰۵/۰۲/۲۸', 
-        totalAmount: 4320000, 
-        status: 'Pending', 
-        itemsCount: 5, 
-        paymentMethod: 'کارت به کارت',
-        address: 'اصفهان، محله مرداویج، خیابان آزادی، پلاک ۴، واحد ۱',
-        items: [
-          { name: 'درخت گربه و اسکرچر مدل کویین', quantity: 1, price: 3800000 },
-          { name: 'قطره تعلیم ادرار حیوانات تریکسی', quantity: 2, price: 260000 }
-        ]
-      },
-      { 
-        id: 'ORD-1004', 
-        customerName: 'سهراب قاسمی', 
-        customerPhone: '۰۹۳۵۴۴۴۵۵۶۶', 
-        date: '۱۴۰۵/۰۲/۲۸', 
-        totalAmount: 950000, 
-        status: 'Processing', 
-        itemsCount: 1, 
-        paymentMethod: 'پرداخت آنلاین',
-        address: 'مشهد، بلوار سجاد، خیابان بزرگمهر، ساختمان اطلس، پلاک ۲۴',
-        items: [
-          { name: 'شامپو براق‌کننده موی سگ تریکسی', quantity: 1, price: 950000 }
-        ]
-      },
-      { 
-        id: 'ORD-1005', 
-        customerName: 'الناز عباسی', 
-        customerPhone: '۰۹۱۲۷۷۷۸۸۹۹', 
-        date: '۱۴۰۵/۰۲/۲۷', 
-        totalAmount: 1240000, 
-        status: 'Completed', 
-        itemsCount: 2, 
-        paymentMethod: 'پرداخت در محل',
-        address: 'تبریز، شهرک ولیعصر، کوچه پروین اعتصامی، پلاک ۸',
-        items: [
-          { name: 'باکس حمل گربه و سگ اندی مدل مینی', quantity: 1, price: 1240000 }
-        ]
-      },
-      { 
-        id: 'ORD-1006', 
-        customerName: 'آرمان شکری', 
-        customerPhone: '۰۹۱۹۵۵۵۶۶۷۷', 
-        date: '۱۴۰۵/۰۲/۲۶', 
-        totalAmount: 3100000, 
-        status: 'Cancelled', 
-        itemsCount: 4, 
-        paymentMethod: 'پرداخت آنلاین',
-        address: 'شیراز، خیابان قصر دشت، کوچه ۱۶، پلاک ۵، طبقه اول',
-        items: [
-          { name: 'قلاده کتفی سگ نایلونی برند هانتر', quantity: 2, price: 850000 },
-          { name: 'اسباب‌بازی توپ دندانی جویدنی سگ', quantity: 2, price: 700000 }
-        ]
-      }
-    ];
-  });
+  // Admin-side orders list. Starts empty; once an admin orders API exists,
+  // fetch real data here. We deliberately don't read the legacy
+  // `petone_orders` localStorage key — it used to hold mock seed data, and
+  // resurrecting it would lie about real state.
+  const [orders, setOrders] = useState<any[]>([]);
 
   // Local storage backup side effects
   useEffect(() => {
@@ -5492,31 +5436,27 @@ export default function App() {
     localStorage.setItem('petone_orders', JSON.stringify(orders));
   }, [orders]);
 
-  // Secret URL path and hash router for Admin console (no visible UI option)
+  // URL path / hash router for the admin console. We always switch to the
+  // admin view when /admin is in the URL; the view itself renders either the
+  // dashboard or a "no access" page depending on the authenticated user's
+  // is_admin flag, so no extra gating is needed here.
   useEffect(() => {
     const handleUrlRouting = () => {
       const path = window.location.pathname.toLowerCase();
       const hash = window.location.hash.toLowerCase();
       if (path === '/admin' || path.endsWith('/admin') || hash === '#admin') {
         setView('admin');
-        if (!isAdmin) {
-          setShowAdminLoginModal(true);
-        }
       }
     };
 
-    // Run on initial page load / mount
     handleUrlRouting();
-
-    // Listen to hash and POPSTATE shifts
     window.addEventListener('hashchange', handleUrlRouting);
     window.addEventListener('popstate', handleUrlRouting);
-
     return () => {
       window.removeEventListener('hashchange', handleUrlRouting);
       window.removeEventListener('popstate', handleUrlRouting);
     };
-  }, [isAdmin]);
+  }, []);
 
   if (error) {
     return (
@@ -5558,10 +5498,12 @@ export default function App() {
     if (cat === 'admin') {
       if (isAdmin) {
         setView('admin');
+      } else if (!isLoggedIn) {
+        setView('auth');
       } else {
-        setShowAdminLoginModal(true);
-        setAdminPasscode('');
-        setAdminLoginError('');
+        // Logged in but not an admin — let the admin view render its own
+        // "no access" page so the URL is still /admin.
+        setView('admin');
       }
     } else {
       setSelectedCategory(cat === 'همه' ? null : cat);
@@ -5630,7 +5572,17 @@ export default function App() {
         ) : view === 'auth' ? (
           <AuthView
             setView={setView}
-            onAuthSuccess={(u) => { setUser(u); setIsLoggedIn(true); }}
+            onAuthSuccess={(u) => {
+              setUser(u);
+              setIsLoggedIn(true);
+              if (u.isAdmin) {
+                setView('admin');
+                window.history.pushState(null, '', '/admin');
+              } else {
+                setView('account');
+              }
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
           />
         ) : view === 'admin' ? (
           isAdmin ? (
@@ -5660,25 +5612,15 @@ export default function App() {
                   🛡️
                 </div>
                 <div className="space-y-2">
-                  <h3 className="font-black text-lg text-slate-100">بخش مدیریت ایمن شده</h3>
-                  <p className="text-xs font-bold text-slate-400 leading-normal">دسترسی کاربر عادی به تنظیمات و داده‌های حساس مسدود است. لطفاً ابتدا رمز عبور مدیریت را وارد کنید.</p>
+                  <h3 className="font-black text-lg text-slate-100">دسترسی مدیریت ندارید</h3>
+                  <p className="text-xs font-bold text-slate-400 leading-normal">این بخش فقط برای کاربران مدیر سیستم در دسترس است. اگر فکر می‌کنید این یک اشتباه است، با مدیر سامانه تماس بگیرید.</p>
                 </div>
-                <button 
-                  onClick={() => {
-                    setShowAdminLoginModal(true);
-                    setAdminPasscode('');
-                    setAdminLoginError('');
-                  }}
-                  className="w-full bg-brand-orange hover:bg-orange-600 text-white text-xs font-black py-3.5 rounded-2xl transition-all cursor-pointer shadow-lg shadow-brand-orange/20"
-                >
-                  ورود به عنوان ادمین
-                </button>
-                <button 
+                <button
                   onClick={() => {
                     setView('home');
                     window.location.hash = '';
                     window.history.pushState(null, '', '/');
-                  }} 
+                  }}
                   className="w-full bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-black py-3.5 rounded-2xl transition-all cursor-pointer border border-slate-800"
                 >
                   بازگشت به فروشگاه
@@ -5882,104 +5824,6 @@ export default function App() {
               )}
             </motion.div>
           </>
-        )}
-      </AnimatePresence>
-
-      {/* Admin Passcode Modal */}
-      <AnimatePresence>
-        {showAdminLoginModal && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-            {/* Backdrop */}
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowAdminLoginModal(false)}
-              className="absolute inset-0 bg-slate-950/80 backdrop-blur-md"
-            />
-            {/* Dialog Container */}
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 15 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-              className="relative w-full max-w-sm bg-slate-900 border border-slate-800 text-slate-100 rounded-[36px] overflow-hidden shadow-2xl p-8 text-right font-sans rtl" dir="rtl"
-            >
-              {/* Premium Top Line Accent */}
-              <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-brand-orange via-amber-500 to-yellow-400" />
-              
-              <button 
-                onClick={() => setShowAdminLoginModal(false)}
-                className="absolute top-6 left-6 w-9 h-9 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-full flex items-center justify-center transition-colors cursor-pointer"
-              >
-                <X size={16} />
-              </button>
-
-              <div className="space-y-6 pt-4">
-                <div className="w-16 h-16 bg-brand-orange/10 text-brand-orange rounded-3xl flex items-center justify-center mx-auto text-3xl shadow-lg border border-brand-orange/20">
-                  🛡️
-                </div>
-
-                <div className="text-center space-y-2">
-                  <h3 className="font-sans font-black text-xl text-slate-100">احراز هویت مدیریت پت‌وان</h3>
-                  <p className="text-xs font-bold text-slate-400">برای اعطای دسترسی مدیریت، لطفاً رمز امنیتی را وارد کنید.</p>
-                </div>
-
-                <form 
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const trimmed = adminPasscode.trim();
-                    if (trimmed === 'admin' || trimmed === '1405' || trimmed === '1234') {
-                      localStorage.setItem('petone_is_admin', 'true');
-                      setIsAdmin(true);
-                      setShowAdminLoginModal(false);
-                      setView('admin');
-                      setAdminPasscode('');
-                      setAdminLoginError('');
-                    } else {
-                      setAdminLoginError('رمز وارد شده صحیح نمی‌باشد. دوباره تلاش کنید.');
-                    }
-                  }}
-                  className="space-y-4"
-                >
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 block mr-1">رمز ورود مدیریت</label>
-                    <input 
-                      type="password"
-                      value={adminPasscode}
-                      onChange={(e) => setAdminPasscode(e.target.value)}
-                      placeholder="••••••••"
-                      autoFocus
-                      className="w-full bg-slate-950/70 border-2 border-slate-800 focus:border-brand-orange rounded-2xl py-3.5 px-4 text-center font-mono text-lg tracking-widest text-white outline-none transition-all placeholder:text-slate-700"
-                    />
-                  </div>
-
-                  {adminLoginError && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: -5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-3.5 rounded-xl text-xs font-bold text-center"
-                    >
-                      {adminLoginError}
-                    </motion.div>
-                  )}
-
-                  <button 
-                    type="submit"
-                    className="w-full bg-brand-orange hover:bg-orange-600 text-white text-xs font-black py-4 rounded-2xl transition-all shadow-lg shadow-brand-orange/20 cursor-pointer flex items-center justify-center gap-2"
-                  >
-                    <span>بررسی رمز و ورود به پنل</span>
-                  </button>
-                </form>
-
-                <div className="bg-slate-950/40 border border-slate-850 p-4 rounded-2xl text-center">
-                  <span className="text-[11px] font-bold text-slate-500 leading-normal block">
-                    💡 جهت تست سریع برنامه، می‌توانید از رمز <code className="font-mono text-brand-orange font-bold text-xs bg-slate-900 px-1.5 py-0.5 rounded">1405</code> یا <code className="font-mono text-brand-orange font-bold text-xs bg-slate-900 px-1.5 py-0.5 rounded">admin</code> استفاده نمایید.
-                  </span>
-                </div>
-              </div>
-            </motion.div>
-          </div>
         )}
       </AnimatePresence>
 
