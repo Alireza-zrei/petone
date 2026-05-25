@@ -68,14 +68,18 @@ import {
   ApiError,
   completePasswordReset as apiCompletePasswordReset,
   getMe,
+  listMyOrders as apiListMyOrders,
   login as apiLogin,
   logout as apiLogout,
+  Order as ApiOrder,
   register as apiRegister,
   requestLoginOtp as apiRequestLoginOtp,
   requestPasswordReset as apiRequestPasswordReset,
+  requestSignupOtp as apiRequestSignupOtp,
   tokens,
   User as AuthUser,
   verifyLoginOtp as apiVerifyLoginOtp,
+  verifySignupOtp as apiVerifySignupOtp,
 } from './auth';
 import { Product, Category } from './types';
 
@@ -1905,9 +1909,14 @@ const AuthView = ({
   setView: (v: any) => void,
   onAuthSuccess: (user: AuthUser) => void,
 }) => {
-  const [mode, setMode] = useState<'login' | 'signup' | 'forgot' | 'phone-otp'>('login');
-  // OTP-driven flows (forgot, phone-otp) are 2-step: collect phone → collect code.
+  const [mode, setMode] = useState<'login' | 'signup' | 'phone-signup' | 'forgot' | 'phone-otp'>('login');
+  // OTP-driven flows (forgot, phone-otp, phone-signup) are 2-step: collect data → collect code.
   const [otpStep, setOtpStep] = useState<'phone' | 'code'>('phone');
+  // True for any screen that collects the full signup form (email-signup, or
+  // phone-signup before the OTP step). Keeps the field-gating conditions
+  // readable below.
+  const isSignupDataStep =
+    mode === 'signup' || (mode === 'phone-signup' && otpStep === 'phone');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Local Toast notification
@@ -1943,7 +1952,7 @@ const AuthView = ({
   };
 
   useEffect(() => {
-    if (mode === 'signup') {
+    if (mode === 'signup' || mode === 'phone-signup') {
       generateCaptcha();
       setConfirmPassword('');
       setCaptchaInput('');
@@ -1978,7 +1987,7 @@ const AuthView = ({
     e.preventDefault();
     if (isSubmitting) return;
 
-    if (mode === 'signup') {
+    if (isSignupDataStep) {
       if (password !== confirmPassword) {
         triggerToastLocal('تکرار رمز عبور با رمز عبور اصلی مطابقت ندارد! ❌');
         return;
@@ -1993,8 +2002,8 @@ const AuthView = ({
     setIsSubmitting(true);
     try {
       if (mode === 'login') {
-        const email = emailOrPhone.trim().toLowerCase();
-        const user = await apiLogin(email, password);
+        const identifier = toEnglishDigits(emailOrPhone.trim());
+        const user = await apiLogin(identifier, password);
         onAuthSuccess(user);
         setView('account');
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2013,6 +2022,27 @@ const AuthView = ({
         onAuthSuccess(user);
         setView('account');
         window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+
+      if (mode === 'phone-signup') {
+        const mobile = toEnglishDigits(phone.trim());
+        if (otpStep === 'phone') {
+          await apiRequestSignupOtp(mobile);
+          setOtpStep('code');
+          triggerToastLocal('کد تأیید برای شما ارسال شد ✅');
+        } else {
+          const user = await apiVerifySignupOtp({
+            mobile,
+            code: toEnglishDigits(otpCode.trim()),
+            email: emailOrPhone.trim().toLowerCase(),
+            password,
+            fullName: fullName.trim(),
+          });
+          onAuthSuccess(user);
+          setView('account');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
         return;
       }
 
@@ -2049,9 +2079,11 @@ const AuthView = ({
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     } catch (err) {
-      const ctx = (mode === 'phone-otp' || mode === 'forgot') && otpStep === 'code' ? 'otp' : mode === 'signup' ? 'signup' : 'login';
+      const ctx = (mode === 'phone-otp' || mode === 'forgot' || mode === 'phone-signup') && otpStep === 'code'
+        ? 'otp'
+        : isSignupDataStep ? 'signup' : 'login';
       triggerToastLocal(apiErrorToFa(err, ctx));
-      if (mode === 'signup') generateCaptcha();
+      if (isSignupDataStep) generateCaptcha();
     } finally {
       setIsSubmitting(false);
     }
@@ -2091,19 +2123,22 @@ const AuthView = ({
             <h2 className="text-2xl font-black text-slate-800">
               {mode === 'login' ? 'خوش آمدید'
                 : mode === 'signup' ? 'ساخت حساب کاربری'
+                : mode === 'phone-signup' ? 'ثبت‌نام با کد یکبارمصرف'
                 : mode === 'phone-otp' ? 'ورود با کد یکبارمصرف'
                 : 'بازیابی رمز عبور'}
             </h2>
             <p className="text-xs font-bold text-slate-400">
               {mode === 'login' ? 'به خانواده پِت‌وان خوش آمدید'
                 : mode === 'signup' ? 'به دنیای حیوانات خانگی بپیوندید'
+                : mode === 'phone-signup' && otpStep === 'phone' ? 'به دنیای حیوانات خانگی بپیوندید'
+                : mode === 'phone-signup' ? 'کد ارسال‌شده به موبایلتان را وارد کنید'
                 : otpStep === 'phone' ? 'شماره موبایل خود را وارد کنید تا کد برایتان ارسال شود'
                 : 'کد ارسال‌شده به موبایلتان را وارد کنید'}
             </p>
           </div>
 
           <form className="space-y-4" onSubmit={handleSubmit}>
-            {mode === 'signup' && (
+            {isSignupDataStep && (
               <div className="space-y-1 animate-fade-in">
                 <label className="text-[10px] font-black text-slate-400 mr-4">نام و نام خانوادگی</label>
                 <input
@@ -2119,13 +2154,15 @@ const AuthView = ({
               </div>
             )}
 
-            {(mode === 'login' || mode === 'signup') && (
+            {(mode === 'login' || isSignupDataStep) && (
               <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 mr-4">ایمیل</label>
+                <label className="text-[10px] font-black text-slate-400 mr-4">
+                  {mode === 'login' ? 'ایمیل یا شماره موبایل' : 'ایمیل'}
+                </label>
                 <input
-                  type="email"
-                  inputMode="email"
-                  placeholder="name@example.com"
+                  type={mode === 'login' ? 'text' : 'email'}
+                  inputMode={mode === 'login' ? 'text' : 'email'}
+                  placeholder={mode === 'login' ? 'name@example.com یا 09123456789' : 'name@example.com'}
                   value={emailOrPhone}
                   onChange={(e) => setEmailOrPhone(e.target.value)}
                   className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold focus:ring-2 focus:ring-brand-orange/20 transition-all text-right"
@@ -2135,7 +2172,7 @@ const AuthView = ({
               </div>
             )}
 
-            {mode === 'signup' && (
+            {isSignupDataStep && (
               <div className="space-y-1 animate-fade-in">
                 <label className="text-[10px] font-black text-slate-400 mr-4">شماره موبایل</label>
                 <input
@@ -2170,7 +2207,7 @@ const AuthView = ({
               </div>
             )}
 
-            {(mode === 'phone-otp' || mode === 'forgot') && otpStep === 'code' && (
+            {(mode === 'phone-otp' || mode === 'forgot' || mode === 'phone-signup') && otpStep === 'code' && (
               <div className="space-y-1 animate-fade-in">
                 <label className="text-[10px] font-black text-slate-400 mr-4">کد تأیید</label>
                 <input
@@ -2191,7 +2228,7 @@ const AuthView = ({
                   onClick={() => { setOtpStep('phone'); setOtpCode(''); }}
                   className="text-[10px] font-black text-slate-400 hover:text-brand-orange mr-4 transition-colors"
                 >
-                  ← تغییر شماره موبایل
+                  {mode === 'phone-signup' ? '← تغییر اطلاعات' : '← تغییر شماره موبایل'}
                 </button>
               </div>
             )}
@@ -2213,7 +2250,7 @@ const AuthView = ({
               </div>
             )}
 
-            {mode === 'signup' && (
+            {isSignupDataStep && (
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 mr-4">رمز عبور</label>
                 <input
@@ -2243,7 +2280,7 @@ const AuthView = ({
               </div>
             )}
 
-            {mode === 'signup' && (
+            {isSignupDataStep && (
               <div className="space-y-1 animate-fade-in">
                 <label className="text-[10px] font-black text-slate-400 mr-4">تکرار رمز عبور</label>
                 <input
@@ -2271,7 +2308,7 @@ const AuthView = ({
               </div>
             )}
 
-            {mode === 'signup' && (
+            {isSignupDataStep && (
               <div className="space-y-2 bg-slate-50/50 p-4 rounded-3xl border border-slate-100">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-black text-slate-400 mr-2">تصویر امنیتی (جلوگیری از ورود ربات)</span>
@@ -2343,7 +2380,7 @@ const AuthView = ({
               </div>
             )}
 
-            {mode === 'signup' && (
+            {isSignupDataStep && (
               <div className="flex items-center gap-2 px-4 py-2">
                  <input type="checkbox" id="terms" required className="rounded border-slate-200 text-brand-orange focus:ring-brand-orange" />
                  <label htmlFor="terms" className="text-[10px] font-bold text-slate-500">قوانین و مقررات پِت‌وان را می‌پذیرم</label>
@@ -2359,6 +2396,8 @@ const AuthView = ({
                 ? 'در حال پردازش...'
                 : mode === 'login' ? 'ورود به حساب'
                 : mode === 'signup' ? 'ثبت‌نام در نظام'
+                : mode === 'phone-signup' && otpStep === 'phone' ? 'ارسال کد تأیید'
+                : mode === 'phone-signup' ? 'تأیید کد و ساخت حساب'
                 : otpStep === 'phone' ? 'ارسال کد تأیید'
                 : mode === 'phone-otp' ? 'تأیید کد و ورود'
                 : 'تنظیم رمز جدید و ورود'}
@@ -2372,6 +2411,26 @@ const AuthView = ({
               className="w-full py-3.5 rounded-2xl text-xs font-black text-brand-orange bg-orange-50 hover:bg-orange-100 transition-all"
             >
               ورود با کد یکبارمصرف (پیامکی)
+            </button>
+          )}
+
+          {mode === 'signup' && (
+            <button
+              type="button"
+              onClick={() => setMode('phone-signup')}
+              className="w-full py-3.5 rounded-2xl text-xs font-black text-brand-orange bg-orange-50 hover:bg-orange-100 transition-all"
+            >
+              ثبت‌نام با کد یکبارمصرف (پیامکی)
+            </button>
+          )}
+
+          {mode === 'phone-signup' && (
+            <button
+              type="button"
+              onClick={() => setMode('signup')}
+              className="w-full py-3.5 rounded-2xl text-xs font-black text-slate-600 bg-slate-50 hover:bg-slate-100 transition-all"
+            >
+              ← ثبت‌نام با ایمیل و رمز عبور
             </button>
           )}
 
@@ -2392,10 +2451,10 @@ const AuthView = ({
 
           <div className="text-center">
              <button
-               onClick={() => setMode(mode === 'signup' ? 'login' : 'signup')}
+               onClick={() => setMode(mode === 'signup' || mode === 'phone-signup' ? 'login' : 'signup')}
                className="text-xs font-black text-slate-600 hover:text-brand-orange transition-colors"
               >
-               {mode === 'signup' ? 'قبلاً ثبت‌نام کرده‌اید؟ وارد شوید' : 'حساب کاربری ندارید؟ ثبت‌نام کنید'}
+               {mode === 'signup' || mode === 'phone-signup' ? 'قبلاً ثبت‌نام کرده‌اید؟ وارد شوید' : 'حساب کاربری ندارید؟ ثبت‌نام کنید'}
              </button>
           </div>
         </div>
@@ -2417,49 +2476,59 @@ const AccountDashboard = ({
   setSelectedCategory: (c: any) => void,
   setCartCount?: React.Dispatch<React.SetStateAction<number>>
 }) => {
-  void user; // reserved for upcoming profile-aware UI; binding kept to silence unused-prop warnings
   const [tab, setTab] = useState<'overview' | 'orders' | 'pets' | 'wishlist' | 'addresses' | 'settings'>('overview');
   
-  // Persisted Pets State
-  const [pets, setPets] = useState(() => {
-    const saved = localStorage.getItem('petone_pets_v3');
-    return saved ? JSON.parse(saved) : [
-      { id: 1, name: 'بیمبو', type: 'dog', breed: 'هاسکی', image: 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?auto=format&fit=crop&q=80&w=300', age: '۲ سال', weight: '۱۸ کیلوگرم', gender: 'نر' },
-      { id: 2, name: 'لوسی', type: 'cat', breed: 'اسکاتیش', image: 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?auto=format&fit=crop&q=80&w=300', age: '۱ سال', weight: '۴ کیلوگرم', gender: 'ماده' },
-      { id: 3, name: 'چیکی', type: 'bird', breed: 'عروس هلندی', image: 'https://images.unsplash.com/photo-1444464666168-49d633b867ad?auto=format&fit=crop&q=80&w=300', age: '۶ ماه', weight: '۱۰۰ گرم', gender: 'نر' },
-    ];
-  });
+  // Per-user local persistence for pets/wishlist/addresses. Keying by user.id
+  // prevents two accounts on the same browser from sharing data, and starting
+  // empty means new users don't inherit the previous demo seed.
+  const userScopedKey = (base: string) => user ? `${base}_${user.id}` : null;
+
+  const [pets, setPets] = useState<any[]>([]);
+  const [wishlist, setWishlist] = useState<any[]>([]);
+  const [addresses, setAddresses] = useState<any[]>([]);
+  const [orders, setOrders] = useState<ApiOrder[]>([]);
+
+  // Fetch the authenticated user's orders. authFetch handles 401 → refresh;
+  // we silently empty on failure so the dashboard still renders.
+  useEffect(() => {
+    if (!user) { setOrders([]); return; }
+    let cancelled = false;
+    apiListMyOrders()
+      .then((data) => { if (!cancelled) setOrders(data); })
+      .catch(() => { if (!cancelled) setOrders([]); });
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   useEffect(() => {
-    localStorage.setItem('petone_pets_v3', JSON.stringify(pets));
-  }, [pets]);
-
-  // Persisted Wishlist State
-  const [wishlist, setWishlist] = useState(() => {
-    const saved = localStorage.getItem('petone_wishlist_v3');
-    return saved ? JSON.parse(saved) : [
-      { id: 101, name: 'غذای خشک گربه رویال کنین مدل Fit 32', price: '۱,۴۵۰,۰۰۰', brand: 'رویال کنین', image: 'https://images.unsplash.com/photo-1548767797-d8c844163c4c?auto=format&fit=crop&q=80&w=300', category: 'غذای گربه' },
-      { id: 102, name: 'قلاده چرمی سگ برند سافاری مقاوم', price: '۳۸۰,۰۰۰', brand: 'سافاری', image: 'https://images.unsplash.com/photo-1576201836106-db1758fd1c97?auto=format&fit=crop&q=80&w=300', category: 'ملزومات سگ' },
-      { id: 103, name: 'مکمل ویتامینه پرندگان برند کانتو', price: '۲۴۰,۰۰۰', brand: 'کانتو', image: 'https://images.unsplash.com/photo-1444464666168-49d633b867ad?auto=format&fit=crop&q=80&w=300', category: 'مکمل پرنده' }
-    ];
-  });
-
-  useEffect(() => {
-    localStorage.setItem('petone_wishlist_v3', JSON.stringify(wishlist));
-  }, [wishlist]);
-
-  // Persisted Addresses State: شهر، آدرس، کد پستی
-  const [addresses, setAddresses] = useState(() => {
-    const saved = localStorage.getItem('petone_addresses_v3');
-    return saved ? JSON.parse(saved) : [
-      { id: 1, city: 'تهران', text: 'بلوار بهارستان، خیابان مطهری، پلاک ۱۴، واحد ۳', postalCode: '۱۴۳۹۸۷۶۵۴۳' },
-      { id: 2, city: 'اصفهان', text: 'خيابان بزرگمهر، کوچه اقاقیا، پلاک ۲۵', postalCode: '۸۱۵۴۶۹۸۷۶۵' },
-    ];
-  });
+    const load = (base: string) => {
+      const key = userScopedKey(base);
+      if (!key) return [];
+      const saved = localStorage.getItem(key);
+      return saved ? JSON.parse(saved) : [];
+    };
+    setPets(load('petone_pets'));
+    setWishlist(load('petone_wishlist'));
+    setAddresses(load('petone_addresses'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   useEffect(() => {
-    localStorage.setItem('petone_addresses_v3', JSON.stringify(addresses));
-  }, [addresses]);
+    const key = userScopedKey('petone_pets');
+    if (key) localStorage.setItem(key, JSON.stringify(pets));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pets, user?.id]);
+
+  useEffect(() => {
+    const key = userScopedKey('petone_wishlist');
+    if (key) localStorage.setItem(key, JSON.stringify(wishlist));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wishlist, user?.id]);
+
+  useEffect(() => {
+    const key = userScopedKey('petone_addresses');
+    if (key) localStorage.setItem(key, JSON.stringify(addresses));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addresses, user?.id]);
 
   // Address Inputs State
   const [addrCity, setAddrCity] = useState('');
@@ -2470,21 +2539,32 @@ const AccountDashboard = ({
   const [showPetModal, setShowPetModal] = useState(false);
   const [selectedPetForEdit, setSelectedPetForEdit] = useState<any>(null);
 
-  // Settings / Profile Data State
-  const [profileData, setProfileData] = useState(() => {
-    const saved = localStorage.getItem('petone_profile_data_v3');
-    return saved ? JSON.parse(saved) : {
-      name: 'مهدی محمود',
-      email: 'mehdi@petone.ir',
-      phone: '۰۹۱۲۳۴۵۶۷۸۹',
-      province: 'تهران'
-    };
+  // Profile data sourced from the authenticated user. `province` isn't tracked
+  // by the backend yet so it defaults locally; if the user is somehow null
+  // (page-load race before /auth/me resolves) we render harmless placeholders
+  // rather than reading stale localStorage.
+  const profileFromUser = (u: AuthUser | null) => ({
+    name: u?.fullName ?? '',
+    email: u?.email ?? '',
+    phone: u?.phone ? '0' + u.phone : '',
+    province: 'تهران',
   });
+  const [profileData, setProfileData] = useState(() => profileFromUser(user));
 
   // Settings inputs for editing
   const [settingsName, setSettingsName] = useState(profileData.name);
   const [settingsEmail, setSettingsEmail] = useState(profileData.email);
   const [settingsProvince, setSettingsProvince] = useState(profileData.province);
+
+  // Re-sync local copies when the authenticated user changes (login/logout).
+  useEffect(() => {
+    const next = profileFromUser(user);
+    setProfileData(next);
+    setSettingsName(next.name);
+    setSettingsEmail(next.email);
+    setSettingsProvince(next.province);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   // Simple Notification Toast
   const [toast, setToast] = useState<string | null>(null);
@@ -2605,25 +2685,45 @@ const AccountDashboard = ({
     { id: 'settings', name: 'تنظیمات', icon: <User size={18} /> },
   ];
 
-  const OrderCard = ({ id, status, price, date }: any) => (
-    <div className="p-3 sm:p-4 bg-white border border-slate-100 rounded-2xl flex items-center justify-between hover:border-brand-orange transition-all group">
-      <div className="flex items-center gap-2 sm:gap-4 shrink-0">
-         <div className="w-10 h-10 sm:w-12 sm:h-12 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 group-hover:bg-orange-50 group-hover:text-brand-orange transition-colors">
-            <ShoppingCart size={18} className="sm:w-5 sm:h-5" />
-         </div>
-         <div className="space-y-0.5 sm:space-y-1 min-w-0">
-            <h4 className="text-[11px] sm:text-sm font-black text-slate-800 truncate max-w-[120px] sm:max-w-none">سفارش: {id}</h4>
-            <p className="text-[9px] sm:text-[10px] font-bold text-slate-400">{date}</p>
-         </div>
+  // Persian status labels + pill colors for backend OrderStatus values.
+  const STATUS_LABELS: Record<string, { label: string; cls: string }> = {
+    pending: { label: 'در انتظار پرداخت', cls: 'bg-amber-100 text-amber-700' },
+    paid: { label: 'پرداخت شده', cls: 'bg-blue-100 text-blue-700' },
+    shipped: { label: 'در حال ارسال', cls: 'bg-indigo-100 text-indigo-700' },
+    delivered: { label: 'تحویل شده', cls: 'bg-green-100 text-green-700' },
+    cancelled: { label: 'لغو شده', cls: 'bg-red-100 text-red-600' },
+  };
+
+  const formatOrderDate = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleDateString('fa-IR');
+    } catch {
+      return iso;
+    }
+  };
+
+  const OrderCard = ({ order }: { order: ApiOrder, key?: any }) => {
+    const pill = STATUS_LABELS[order.status] ?? { label: order.status, cls: 'bg-slate-100 text-slate-600' };
+    return (
+      <div className="p-3 sm:p-4 bg-white border border-slate-100 rounded-2xl flex items-center justify-between hover:border-brand-orange transition-all group">
+        <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+           <div className="w-10 h-10 sm:w-12 sm:h-12 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 group-hover:bg-orange-50 group-hover:text-brand-orange transition-colors">
+              <ShoppingCart size={18} className="sm:w-5 sm:h-5" />
+           </div>
+           <div className="space-y-0.5 sm:space-y-1 min-w-0">
+              <h4 className="text-[11px] sm:text-sm font-black text-slate-800 truncate max-w-[120px] sm:max-w-none">سفارش #{toPersianDigits(order.id)}</h4>
+              <p className="text-[9px] sm:text-[10px] font-bold text-slate-400">{formatOrderDate(order.createdAt)}</p>
+           </div>
+        </div>
+        <div className="text-left space-y-1 sm:space-y-2 shrink-0">
+           <div className={`text-[8px] sm:text-[9px] font-black px-1.5 sm:px-2 py-0.5 rounded-md inline-block ${pill.cls}`}>
+              {pill.label}
+           </div>
+           <div className="text-xs sm:text-sm font-black text-slate-700">{toPersianDigits((order.totalCents / 100).toLocaleString('fa-IR'))} <span className="text-[10px] opacity-50">ت</span></div>
+        </div>
       </div>
-      <div className="text-left space-y-1 sm:space-y-2 shrink-0">
-         <div className={`text-[8px] sm:text-[9px] font-black px-1.5 sm:px-2 py-0.5 rounded-md inline-block ${status === 'delivered' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}`}>
-            {status === 'delivered' ? 'تحویل شده' : 'در حال ارسال'}
-         </div>
-         <div className="text-xs sm:text-sm font-black text-slate-700">{price} <span className="text-[10px] opacity-50">ت</span></div>
-      </div>
-    </div>
-  );
+    );
+  };
 
   const PetCard = ({ pet, onEdit }: { pet: any, onEdit: (p: any) => void, key?: any }) => (
     <div className="p-3 sm:p-4 bg-white border border-slate-100 rounded-[24px] flex flex-col items-center gap-3 sm:gap-4 hover:shadow-xl hover:shadow-slate-200/50 transition-all cursor-pointer group relative">
@@ -2825,8 +2925,11 @@ const AccountDashboard = ({
           <aside className="space-y-4 sm:space-y-6">
             <div className="bg-white rounded-[24px] sm:rounded-[32px] p-6 sm:p-8 border border-slate-100 shadow-sm text-center">
                <div className="relative w-20 h-20 sm:w-24 sm:h-24 mx-auto mb-3 sm:mb-4">
-                  <div className="w-full h-full rounded-[24px] sm:rounded-[32px] overflow-hidden bg-slate-100 border-2 sm:border-4 border-white shadow-lg">
-                     <img src="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=200" alt="Avatar" className="w-full h-full object-cover" />
+                  <div className="w-full h-full rounded-[24px] sm:rounded-[32px] overflow-hidden bg-slate-200 border-2 sm:border-4 border-white shadow-lg flex items-end justify-center">
+                     <svg viewBox="0 0 64 64" className="w-full h-full text-slate-400" fill="currentColor" aria-label="آواتار کاربر">
+                        <circle cx="32" cy="24" r="12" />
+                        <path d="M10 60 C10 44, 22 38, 32 38 C42 38, 54 44, 54 60 Z" />
+                     </svg>
                   </div>
                   <button className="absolute -bottom-1 -left-1 w-8 h-8 bg-brand-orange text-white rounded-xl flex items-center justify-center border-4 border-white shadow-lg">
                      <PawPrint size={14} />
@@ -2836,7 +2939,7 @@ const AccountDashboard = ({
                <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 tracking-wider font-mono">{profileData.email}</p>
                <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-slate-50 flex items-center justify-around">
                   <div className="text-center">
-                     <span className="block text-xs sm:text-sm font-black text-slate-800">۱۲</span>
+                     <span className="block text-xs sm:text-sm font-black text-slate-800">{orders.length}</span>
                      <span className="block text-[7px] sm:text-[8px] font-bold text-slate-400 uppercase">سفارش</span>
                   </div>
                   <div className="w-px h-5 sm:h-6 bg-slate-100" />
@@ -2928,10 +3031,16 @@ const AccountDashboard = ({
                              <h3 className="text-xs sm:text-sm font-black text-slate-800 uppercase tracking-widest">سفارشات اخیر</h3>
                              <button onClick={() => setTab('orders')} className="text-[9px] sm:text-[10px] font-black text-brand-orange">مشاهده همه</button>
                           </div>
-                          <div className="space-y-2.5 sm:space-y-3">
-                             <OrderCard id="PT-8942" status="shipping" date="۱۴ فروردین ۱۴۰۳" price="۱,۴۵۰,۰۰۰" />
-                             <OrderCard id="PT-8931" status="delivered" date="۲۸ اسفند ۱۴۰۲" price="۸۹۰,۰۰۰" />
-                          </div>
+                          {orders.length === 0 ? (
+                             <div className="text-center py-6 space-y-2">
+                                <div className="text-3xl">📦</div>
+                                <p className="text-[11px] font-bold text-slate-400">هنوز سفارشی ثبت نکرده‌اید</p>
+                             </div>
+                          ) : (
+                             <div className="space-y-2.5 sm:space-y-3">
+                                {orders.slice(0, 2).map((o) => <OrderCard key={o.id} order={o} />)}
+                             </div>
+                          )}
                        </section>
                     </div>
 
@@ -2942,10 +3051,18 @@ const AccountDashboard = ({
                             <button onClick={() => setTab('pets')} className="text-[9px] sm:text-[10px] font-black text-brand-orange">افزودن</button>
                          </div>
                          <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                            <div onClick={() => { if (pets[0]) { handleEditPetClick(pets[0]); } else { setTab('pets'); } }} className="p-3 sm:p-4 bg-orange-50/50 rounded-xl sm:rounded-2xl flex items-center gap-2 sm:gap-3 border border-orange-100/50 cursor-pointer hover:border-brand-orange/40 transition-all">
-                               <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full overflow-hidden shrink-0"><img src={pets[0]?.image || "https://images.unsplash.com/photo-1543466835-00a7907e9de1?auto=format&fit=crop&q=80&w=100"} alt="Pet" className="w-full h-full object-cover" referrerPolicy="no-referrer" /></div>
-                               <div className="truncate"><h4 className="text-[10px] sm:text-xs font-black text-slate-800 truncate">{pets[0]?.name || 'بیمبو'}</h4><p className="text-[7px] sm:text-[8px] font-bold text-slate-400">{pets[0]?.breed || 'هاسکی'}</p></div>
-                            </div>
+                            {pets.slice(0, 1).map((p: any) => (
+                               <div key={p.id} onClick={() => handleEditPetClick(p)} className="p-3 sm:p-4 bg-orange-50/50 rounded-xl sm:rounded-2xl flex items-center gap-2 sm:gap-3 border border-orange-100/50 cursor-pointer hover:border-brand-orange/40 transition-all">
+                                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full overflow-hidden shrink-0 bg-slate-100 flex items-center justify-center">
+                                     {p.image ? (
+                                        <img src={p.image} alt="Pet" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                     ) : (
+                                        <PawPrint size={14} className="text-slate-400" />
+                                     )}
+                                  </div>
+                                  <div className="truncate"><h4 className="text-[10px] sm:text-xs font-black text-slate-800 truncate">{p.name}</h4><p className="text-[7px] sm:text-[8px] font-bold text-slate-400">{p.breed}</p></div>
+                               </div>
+                            ))}
                             <div onClick={handleAddPetClick} className="p-3 sm:p-4 bg-white border border-slate-100 rounded-xl sm:rounded-2xl flex items-center gap-2 sm:gap-3 border-dashed cursor-pointer hover:border-brand-orange/40 transition-all">
                                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-300"><PawPrint size={14} className="sm:w-4 sm:h-4" /></div>
                                <div className="truncate"><h4 className="text-[10px] sm:text-xs font-black text-slate-300">افزودن پت</h4></div>
@@ -2973,12 +3090,18 @@ const AccountDashboard = ({
                {tab === 'orders' && (
                   <motion.div key="orders" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="space-y-4 sm:space-y-6">
                      <h2 className="text-xl sm:text-2xl font-black text-slate-800 px-1">سفارشات من</h2>
-                     <div className="grid gap-3 sm:gap-4">
-                        <OrderCard id="PT-8942" status="shipping" date="۱۴ فروردین ۱۴۰۳" price="۱,۴۵۰,۰۰۰" />
-                        <OrderCard id="PT-8931" status="delivered" date="۲۸ اسفند ۱۴۰۲" price="۸۹۰,۰۰۰" />
-                        <OrderCard id="PT-8920" status="delivered" date="۱۵ اسفند ۱۴۰۲" price="۲,۱۰۰,۰۰۰" />
-                        <OrderCard id="PT-8895" status="delivered" date="۲ بهمن ۱۴۰۲" price="۴۵۰,۰۰۰" />
-                     </div>
+                     {orders.length === 0 ? (
+                       <div className="text-center py-16 bg-white border border-slate-100 rounded-[32px] space-y-4">
+                          <div className="text-5xl">📦</div>
+                          <h3 className="text-sm sm:text-base font-black text-slate-700">هنوز سفارشی ثبت نکرده‌اید</h3>
+                          <p className="text-xs text-slate-400 max-w-xs mx-auto">پس از اولین خرید، سفارشات شما در این صفحه قابل پیگیری خواهد بود.</p>
+                          <button onClick={() => setView('shop')} className="btn-primary px-6 py-3 rounded-xl text-xs font-black">رفتن به فروشگاه پِت‌وان</button>
+                       </div>
+                     ) : (
+                       <div className="grid gap-3 sm:gap-4">
+                          {orders.map((o) => <OrderCard key={o.id} order={o} />)}
+                       </div>
+                     )}
                   </motion.div>
                )}
 
@@ -3134,29 +3257,29 @@ const AccountDashboard = ({
                 {tab === 'settings' && (
                   <motion.div key="settings" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="bg-white rounded-[24px] sm:rounded-[32px] p-6 sm:p-10 border border-slate-100 shadow-sm space-y-6 sm:space-y-8">
                      <h2 className="text-xl sm:text-2xl font-black text-slate-800">تنظیمات حساب</h2>
-                     <form className="grid sm:grid-cols-2 gap-4 sm:gap-6">
+                     <form className="grid sm:grid-cols-2 gap-4 sm:gap-6" onSubmit={handleSaveSettingsSubmit}>
                         <div className="space-y-1">
                            <label className="text-[10px] font-black text-slate-400 mr-4">نام و نام خانوادگی</label>
-                           <input type="text" defaultValue="مهدی محمود" className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold focus:ring-2 focus:ring-brand-orange/20 transition-all text-right" />
+                           <input type="text" value={settingsName} onChange={(e) => setSettingsName(e.target.value)} className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold focus:ring-2 focus:ring-brand-orange/20 transition-all text-right" />
                         </div>
                         <div className="space-y-1">
                            <label className="text-[10px] font-black text-slate-400 mr-4">شماره موبایل</label>
-                           <input type="text" defaultValue="۰۹۱۲۳۴۵۶۷۸۹" className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold focus:ring-2 focus:ring-brand-orange/20 transition-all text-right" disabled />
+                           <input type="text" value={toPersianDigits(profileData.phone)} className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold focus:ring-2 focus:ring-brand-orange/20 transition-all text-right" disabled readOnly />
                         </div>
                         <div className="space-y-1">
-                           <label className="text-[10px] font-black text-slate-400 mr-4">ایمیل (اختیاری)</label>
-                           <input type="email" defaultValue="mehdi@petone.ir" className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold focus:ring-2 focus:ring-brand-orange/20 transition-all text-right" />
+                           <label className="text-[10px] font-black text-slate-400 mr-4">ایمیل</label>
+                           <input type="email" value={settingsEmail} onChange={(e) => setSettingsEmail(e.target.value)} className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold focus:ring-2 focus:ring-brand-orange/20 transition-all text-right" />
                         </div>
                         <div className="space-y-1">
                            <label className="text-[10px] font-black text-slate-400 mr-4">استان</label>
-                           <select className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold focus:ring-2 focus:ring-brand-orange/20 transition-all text-right appearance-none">
+                           <select value={settingsProvince} onChange={(e) => setSettingsProvince(e.target.value)} className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold focus:ring-2 focus:ring-brand-orange/20 transition-all text-right appearance-none">
                               <option>تهران</option>
                               <option>البرز</option>
                               <option>اصفهان</option>
                            </select>
                         </div>
                         <div className="sm:col-span-2 pt-4">
-                           <button type="button" className="btn-primary w-full sm:w-auto px-12 py-4 rounded-2xl">ذخیره تغییرات</button>
+                           <button type="submit" className="btn-primary w-full sm:w-auto px-12 py-4 rounded-2xl">ذخیره تغییرات</button>
                         </div>
                      </form>
                   </motion.div>

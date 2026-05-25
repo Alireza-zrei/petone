@@ -24,6 +24,7 @@ export const tokens = {
 export interface User {
   id: number;
   email: string;
+  phone: string;
   fullName: string;
   isActive: boolean;
   isAdmin: boolean;
@@ -33,6 +34,7 @@ export interface User {
 interface ApiUser {
   id: number;
   email: string;
+  phone: string;
   full_name: string;
   is_active: boolean;
   is_admin: boolean;
@@ -43,6 +45,7 @@ function mapUser(u: ApiUser): User {
   return {
     id: u.id,
     email: u.email,
+    phone: u.phone,
     fullName: u.full_name,
     isActive: u.is_active,
     isAdmin: u.is_admin,
@@ -109,6 +112,40 @@ export async function verifyLoginOtp(mobile: string, code: string): Promise<User
   return getMe();
 }
 
+// --- OTP-based phone signup ---
+
+export async function requestSignupOtp(mobile: string): Promise<void> {
+  const response = await fetch(`${API_URL}/auth/signup/otp/request`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mobile }),
+  });
+  if (!response.ok) throw new ApiError(response.status, await parseError(response));
+}
+
+export async function verifySignupOtp(input: {
+  mobile: string;
+  code: string;
+  email: string;
+  password: string;
+  fullName: string;
+}): Promise<User> {
+  const response = await fetch(`${API_URL}/auth/signup/otp/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      mobile: input.mobile,
+      code: input.code,
+      email: input.email,
+      password: input.password,
+      full_name: input.fullName,
+    }),
+  });
+  if (!response.ok) throw new ApiError(response.status, await parseError(response));
+  tokens.set(await response.json());
+  return getMe();
+}
+
 // --- OTP-based password reset ---
 
 export async function requestPasswordReset(mobile: string): Promise<void> {
@@ -135,11 +172,11 @@ export async function completePasswordReset(
   return getMe();
 }
 
-export async function login(email: string, password: string): Promise<User> {
+export async function login(identifier: string, password: string): Promise<User> {
   const response = await fetch(`${API_URL}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ identifier, password }),
   });
   if (!response.ok) throw new ApiError(response.status, await parseError(response));
   const pair = await response.json();
@@ -166,6 +203,38 @@ export async function getMe(): Promise<User> {
   const response = await authFetch('/auth/me');
   if (!response.ok) throw new ApiError(response.status, await parseError(response));
   return mapUser(await response.json());
+}
+
+// --- Orders (server-side per user) ---
+
+export interface Order {
+  id: number;
+  status: string;
+  totalCents: number;
+  createdAt: string;
+  itemsCount: number;
+}
+
+interface ApiOrderItem { product_id: number; quantity: number; unit_price_cents: number }
+interface ApiOrder {
+  id: number;
+  status: string;
+  total_cents: number;
+  created_at: string;
+  items: ApiOrderItem[];
+}
+
+export async function listMyOrders(): Promise<Order[]> {
+  const response = await authFetch('/orders');
+  if (!response.ok) throw new ApiError(response.status, await parseError(response));
+  const data: ApiOrder[] = await response.json();
+  return data.map((o) => ({
+    id: o.id,
+    status: o.status,
+    totalCents: o.total_cents,
+    createdAt: o.created_at,
+    itemsCount: o.items.reduce((s, i) => s + i.quantity, 0),
+  }));
 }
 
 let refreshPromise: Promise<boolean> | null = null;

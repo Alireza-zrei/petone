@@ -5,6 +5,7 @@ Running log of Claude Code sessions on this repo. Append a new entry at the top 
 Format per entry:
 ```
 ## YYYY-MM-DD — short title
+**By:** alireza | khashi  (who drove the session — tag so the other person's Claude knows who touched what)
 **Did:** bullets of what was actually done (files touched, commands run, decisions made)
 **State:** clean / dirty / blocked — current working state
 **Next:** what to pick up on the next session
@@ -12,7 +13,32 @@ Format per entry:
 
 ---
 
+## 2026-05-25 — Two-person split agreed with khashi; tree pushed to main
+**By:** alireza
+**Did:**
+- Reviewed `session.note` to plan a parallel split between alireza and khashi. Big-picture queued work was: cart UI wire-up, then orders list + checkout + payment, plus loose ends (CI gap, ShaparakGateway stub, SMS.ir templateId, leaked API key rotation).
+- Agreed split (file-ownership chosen to avoid `App.tsx` collisions — single 5.7k-line file, the main concurrency hazard):
+  - **alireza — Frontend track.** Owns `frontend/src/App.tsx`, `frontend/src/api.ts`, `frontend/src/auth.ts`. Scope: cart UI against `/cart/*` using `authFetch` (replace top-level `cartCount: number` with a real `cartItems` state, rebuild add/remove/update-qty handlers, loading/empty/error states), then orders list page, then checkout UI, then payment-initiate redirect + callback route on the SPA side.
+  - **khashi — Backend track.** Owns `backend/app/domains/orders/*`, `backend/app/domains/payments/*`, backend tests, CI workflows. Scope (in order): (1) fix the two pre-existing failures `tests/test_orders.py::test_add_item_to_cart` (returns 0 instead of 1) and `test_remove_cart_item` (stale items in response) — almost certainly stale-session / missing `await session.refresh()` or `expire_on_commit` handling in `orders.service` cart paths; **land this first so frontend can integration-test against a green backend.** (2) Audit `GET /orders` + `GET /orders/{id}` shape against what the frontend will consume; add tests. (3) Checkout / order-create flow — verify cart→order conversion, stock decrement, `OrderNotPayable` transitions; tests for empty cart, insufficient stock, already-paid order. (4) Payments initiate + `FakePaymentGateway` round-trip tests. (5) Add `pytest` to `.github/workflows/python-app.yml` and `npm run lint` to `.github/workflows/node.yml`, keeping the existing path filters.
+- Things only alireza can do (don't hand to khashi): rotate the SMS.ir API key that leaked into chat earlier; paste the SMS.ir `templateId` once approved; decide commit policy for `CLAUDE.md` / `session.note` (now: both tracked); provide Shaparak URL + credentials when ready.
+- Coordination: both push directly to `main` per alireza's call (not feature branches). Sync point = khashi's step 1 (cart test fixes); after that they parallelize. Both Claudes read `session.note` on session start, so as long as each tags entries with `**By:**` and pushes promptly, the two sessions stay coherent.
+- Honest note about Claude Code: there is no "I am khashi" identity handshake in Claude Code — each session is independent. Cross-person continuity is mechanical: shared repo + `session.note` + `CLAUDE.md`. That's the whole feature surface.
+- Committed the dirty tree from the prior three sessions (auth/refresh-rotation, AuthView wire-up, SMS.ir OTP, Persian/Arabic digit normalization) so khashi can pull and start. Modified files at commit time: `backend/app/domains/users/{models,router,schemas,service,sms}.py`, `backend/docker-compose.yml`, `frontend/src/App.tsx`, `frontend/src/auth.ts`. No new untracked files this turn.
+
+**State:** clean after this commit + push.
+
+**Heads-up for next session:**
+- `.gitignore` on `main` contains unresolved merge conflict markers (`<<<<<<< HEAD` / `=======` / `>>>>>>> f23cd32`). `.env` is still ignored on both sides so nothing leaked, but the file is malformed and should be cleaned up. Pick the second side (minimal: `node_modules/`, `dist/`, `.env*`, `!.env.example`, etc.) or merge intentionally.
+- SMS.ir API key that was pasted in chat earlier remains compromised until rotated.
+
+**Next:**
+- alireza: start cart UI wire-up (frontend track step 1).
+- khashi: pull `main`, then fix the two `test_orders.py` failures before anything else.
+
+---
+
 ## 2026-05-23 — Persian/Arabic digit normalization across CAPTCHA, OTP code, and phone
+**By:** alireza
 **Did:**
 - Diagnosed: user reported CAPTCHA always failed with "کد امنیتی صحیح نیست". Root cause was Persian-keyboard input — the user typed `۲۳۴۵۶۷۸۹` while the CAPTCHA pool is ASCII `23456789…` and `.toUpperCase()` doesn't normalize digit code points. Same root cause would have bitten OTP code entry (`\D` filter strips Persian digits to empty string) and phone-number submission (backend's `normalize_iranian_mobile` rejects Persian-digit phones because `"۹" != "9"`).
 - Added `toEnglishDigits(s)` helper in `frontend/src/App.tsx` covering Persian (`۰-۹`, U+06F0–06F9) and Arabic-Indic (`٠-٩`, U+0660–0669) digits.

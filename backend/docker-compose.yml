@@ -30,6 +30,9 @@ services:
   backend:
     image: petone-backend
     build: .
+    # `.env` carries SMSIR_* and other local overrides; `environment:` below
+    # wins for keys that appear in both (notably DATABASE_URL → in-network host).
+    env_file: .env
     environment:
       ENVIRONMENT: development
       DATABASE_URL: postgresql+asyncpg://petone:petone@db:5432/petone

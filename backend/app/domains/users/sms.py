@@ -23,7 +23,7 @@ async def send_otp_sms(mobile: str, code: str) -> None:
     payload = {
         "mobile": mobile,
         "templateId": settings.smsir_template_id,
-        "parameters": [{"name": "Code", "value": code}],
+        "parameters": [{"name": "CODE", "value": code}],
     }
     headers = {
         "Content-Type": "application/json",
@@ -34,9 +34,14 @@ async def send_otp_sms(mobile: str, code: str) -> None:
         try:
             response = await client.post(url, json=payload, headers=headers)
             response.raise_for_status()
+            logger.info("SMS.ir response mobile=%s body=%s", mobile, response.text)
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "SMS.ir HTTP %s mobile=%s body=%s",
+                exc.response.status_code, mobile, exc.response.text,
+            )
         except httpx.HTTPError as exc:
-            # We swallow the gateway error after logging — the OTP row is
-            # already persisted, so the user can request a resend without
-            # leaking the upstream failure (and without enumeration via
-            # differential timing on success vs. SMS.ir errors).
-            logger.error("SMS.ir send failed mobile=%s: %s", mobile, exc)
+            logger.error(
+                "SMS.ir send failed mobile=%s type=%s detail=%r",
+                mobile, type(exc).__name__, exc,
+            )

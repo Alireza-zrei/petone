@@ -63,8 +63,24 @@ async def register(db: AsyncSession, data: UserCreate) -> User:
     return user
 
 
-async def authenticate(db: AsyncSession, email: str, password: str) -> TokenPair:
-    user = await crud.get_by_email(db, email.lower())
+async def authenticate(
+    db: AsyncSession, identifier: str, password: str
+) -> TokenPair:
+    """Look up a user by email-or-phone, verify password, mint tokens.
+
+    Email is detected by the presence of '@'; anything else is normalized as
+    an Iranian mobile number. A bad phone format is treated as wrong
+    credentials so we don't leak whether a given input shape exists.
+    """
+    identifier = identifier.strip()
+    if "@" in identifier:
+        user = await crud.get_by_email(db, identifier.lower())
+    else:
+        try:
+            phone = normalize_iranian_mobile(identifier)
+        except Exception:
+            raise InvalidCredentials from None
+        user = await crud.get_by_phone(db, phone)
     if user is None or not verify_password(password, user.hashed_password):
         raise InvalidCredentials
     if not user.is_active:
@@ -168,4 +184,45 @@ async def complete_password_reset(
     # session can't survive a password reset.
     await crud.revoke_all_user_tokens(db, user.id, now=datetime.now(UTC))
     logger.info("Password reset completed for user id=%s", user.id)
+    return await _issue_tokens(db, user.id)
+
+
+async def start_phone_signup(db: AsyncSession, mobile: str) -> None:
+    """Send a SIGNUP OTP if the mobile is not already registered.
+
+    Mirror of start_phone_login: silent-202 when the phone is taken so the
+    caller can't enumerate registered numbers via this endpoint.
+    """
+    phone = normalize_iranian_mobile(mobile)
+    if await crud.get_by_phone(db, phone) is not None:
+        logger.info("Signup OTP requested for already-registered mobile=%s", phone)
+        return
+    await otp.issue(db, phone, OtpPurpose.SIGNUP)
+
+
+async def complete_phone_signup(
+    db: AsyncSession,
+    mobile: str,
+    code: str,
+    email: str,
+    password: str,
+    full_name: str,
+) -> TokenPair:
+    phone = normalize_iranian_mobile(mobile)
+    await otp.verify(db, phone, OtpPurpose.SIGNUP, code)
+    normalized_email = email.lower()
+    if await crud.get_by_email(db, normalized_email) is not None:
+        raise EmailAlreadyRegistered(normalized_email)
+    if await crud.get_by_phone(db, phone) is not None:
+        # Race: a concurrent signup with the same phone slipped in between
+        # OTP request and verify. Don't leak that fact.
+        raise OtpInvalid()
+    user = await crud.create(
+        db,
+        email=normalized_email,
+        phone=phone,
+        hashed_password=hash_password(password),
+        full_name=full_name,
+    )
+    logger.info("Registered user via phone signup id=%s", user.id)
     return await _issue_tokens(db, user.id)

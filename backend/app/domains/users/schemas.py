@@ -34,7 +34,10 @@ class UserRead(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    # `identifier` accepts either an email address or an Iranian mobile number.
+    # We don't pin it to EmailStr so phones validate too; the service layer
+    # routes the lookup based on whether the value contains '@'.
+    identifier: str = Field(min_length=3, max_length=320)
     password: str
 
 
@@ -61,3 +64,11 @@ class PasswordResetVerify(BaseModel):
     mobile: str = Field(min_length=8, max_length=20)
     code: str = Field(min_length=4, max_length=8)
     new_password: str = Field(min_length=8, max_length=72)
+
+
+class PhoneSignupVerify(BaseModel):
+    mobile: str = Field(min_length=8, max_length=20)
+    code: str = Field(min_length=4, max_length=8)
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=72)
+    full_name: str = Field(min_length=1, max_length=255)

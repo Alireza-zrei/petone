@@ -38,6 +38,7 @@ class RefreshToken(Base):
 class OtpPurpose(enum.StrEnum):
     LOGIN = "login"
     PASSWORD_RESET = "password_reset"
+    SIGNUP = "signup"
 
 
 class OtpCode(Base):
