@@ -65,14 +65,19 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { PRODUCTS, CATEGORIES, TRUST_BADGES, FOOD_CATEGORIES, NAV_CATEGORIES } from './constants';
 import { fetchProducts } from './api';
 import {
+  addCartItem as apiAddCartItem,
   ApiError,
+  Cart,
+  checkoutCart as apiCheckoutCart,
   completePasswordReset as apiCompletePasswordReset,
+  getCart as apiGetCart,
   getMe,
   listMyOrders as apiListMyOrders,
   login as apiLogin,
   logout as apiLogout,
   Order as ApiOrder,
   register as apiRegister,
+  removeCartItem as apiRemoveCartItem,
   requestLoginOtp as apiRequestLoginOtp,
   requestPasswordReset as apiRequestPasswordReset,
   requestSignupOtp as apiRequestSignupOtp,
@@ -2463,14 +2468,12 @@ const AccountDashboard = ({
   onLogout,
   user,
   setView,
-  setSelectedCategory,
-  setCartCount
+  setSelectedCategory
 }: {
   onLogout: () => Promise<void> | void,
   user: AuthUser | null,
   setView: (v: any) => void,
-  setSelectedCategory: (c: any) => void,
-  setCartCount?: React.Dispatch<React.SetStateAction<number>>
+  setSelectedCategory: (c: any) => void
 }) => {
   const [tab, setTab] = useState<'overview' | 'orders' | 'pets' | 'wishlist' | 'addresses' | 'settings'>('overview');
   
@@ -2603,10 +2606,10 @@ const AccountDashboard = ({
     triggerToast('کالا با موفقیت از لیست علاقه‌مندی‌ها حذف شد ❌');
   };
 
+  // Wishlist items here are pure localStorage demo data with synthetic IDs
+  // that don't map to real backend products, so we can't actually add them
+  // to the server-side cart. Toast-only until wishlist is backed by /products.
   const handleAddToCart = (item: any) => {
-    if (setCartCount) {
-      setCartCount(prev => prev + 1);
-    }
     triggerToast(`"${item.name}" به سبد خرید اضافه شد 🛒`);
   };
 
@@ -5253,7 +5256,13 @@ const Footer = () => {
 export default function App() {
   console.log('App mounting...', { productsCount: PRODUCTS?.length });
   const [error, setError] = useState<string | null>(null);
-  const [cartCount, setCartCount] = useState(0);
+  // Server-backed cart; null while uninitialized or for unauthenticated users.
+  const [cart, setCart] = useState<Cart | null>(null);
+  const cartCount = cart?.itemCount ?? 0;
+  // Snapshot of a guest cart at the moment of "checkout while logged out", so
+  // the post-login hydration effect can POST its items to the server before
+  // overwriting state with the freshly-fetched server cart.
+  const pendingGuestCart = React.useRef<Cart | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [view, setView] = useState<'home' | 'shop' | 'auth' | 'account' | 'admin'>('home');
@@ -5274,15 +5283,44 @@ export default function App() {
 
   // Reset auth state when the auth module signals the session is unrecoverable.
   useEffect(() => {
-    const onExpired = () => { setUser(null); setIsLoggedIn(false); };
+    const onExpired = () => { setUser(null); setIsLoggedIn(false); setCart(null); };
     window.addEventListener('petone:auth-expired', onExpired);
     return () => window.removeEventListener('petone:auth-expired', onExpired);
   }, []);
+
+  // Hydrate the server-backed cart on login; clear on logout. authFetch handles
+  // 401 → refresh, so a single failure means the cart legitimately doesn't
+  // exist or the network blipped — we silently empty so the UI still renders.
+  // If the user arrived here with a guest cart (see handleCheckout), POST each
+  // item to the server first, then fetch the merged cart back.
+  useEffect(() => {
+    if (!user) { setCart(null); return; }
+    let cancelled = false;
+    const guestItems = pendingGuestCart.current?.items ?? [];
+    pendingGuestCart.current = null;
+    (async () => {
+      for (const item of guestItems) {
+        try {
+          await apiAddCartItem(item.productId, item.quantity);
+        } catch (e) {
+          console.error('guest cart merge failed for product', item.productId, e);
+        }
+      }
+      try {
+        const c = await apiGetCart();
+        if (!cancelled) setCart(c);
+      } catch {
+        if (!cancelled) setCart({ items: [], total: 0, itemCount: 0 });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   const handleLogout = React.useCallback(async () => {
     await apiLogout();
     setUser(null);
     setIsLoggedIn(false);
+    setCart(null);
     setView('home');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
@@ -5489,10 +5527,117 @@ export default function App() {
     }))
   }), []);
 
-  const handleAddToCart = React.useCallback((e: React.MouseEvent, product: Product) => {
+  const addProductToLocalCart = (
+    prev: Cart | null,
+    product: Product,
+    qty: number,
+  ): Cart => {
+    const productId = parseInt(product.id, 10);
+    const unitPrice = product.discountPrice ?? product.price;
+    const existing = prev?.items.find((i) => i.productId === productId);
+    const items = existing
+      ? prev!.items.map((i) =>
+          i.productId === productId
+            ? { ...i, quantity: i.quantity + qty, subtotal: i.unitPrice * (i.quantity + qty) }
+            : i,
+        )
+      : [
+          ...(prev?.items ?? []),
+          {
+            productId,
+            productName: product.name,
+            unitPrice,
+            quantity: qty,
+            subtotal: unitPrice * qty,
+          },
+        ];
+    return {
+      items,
+      total: items.reduce((s, i) => s + i.subtotal, 0),
+      itemCount: items.reduce((s, i) => s + i.quantity, 0),
+    };
+  };
+
+  // Add a product to the cart. Guests get a local-only cart; logged-in users
+  // round-trip to the server. The two flows share the same drawer rendering.
+  // The drawer does not auto-open — user reaches it via the "سبد خرید" button.
+  const handleAddToCart = React.useCallback(async (e: React.MouseEvent, product: Product) => {
     e.stopPropagation();
-    setCartCount(prev => prev + 1);
-  }, []);
+    if (!isLoggedIn || !user) {
+      setCart((prev) => addProductToLocalCart(prev, product, 1));
+      return;
+    }
+    try {
+      const next = await apiAddCartItem(parseInt(product.id, 10), 1);
+      setCart(next);
+    } catch (err) {
+      console.error('add to cart failed', err);
+    }
+  }, [isLoggedIn, user]);
+
+  // Increment qty of an existing line. For guests we mutate local state by
+  // looking the product up in the loaded catalogue. For logged-in users we
+  // hit /cart/items with qty=1 (server adds to existing line).
+  const handleIncrementCartItem = React.useCallback(async (productId: number) => {
+    if (!isLoggedIn || !user) {
+      const product = products.find((p) => p.id === String(productId));
+      if (!product) return;
+      setCart((prev) => addProductToLocalCart(prev, product, 1));
+      return;
+    }
+    try {
+      const next = await apiAddCartItem(productId, 1);
+      setCart(next);
+    } catch (err) {
+      console.error('increment cart item failed', err);
+    }
+  }, [isLoggedIn, user, products]);
+
+  const handleRemoveCartItem = React.useCallback(async (productId: number) => {
+    if (!isLoggedIn || !user) {
+      setCart((prev) => {
+        if (!prev) return null;
+        const items = prev.items.filter((i) => i.productId !== productId);
+        return {
+          items,
+          total: items.reduce((s, i) => s + i.subtotal, 0),
+          itemCount: items.reduce((s, i) => s + i.quantity, 0),
+        };
+      });
+      return;
+    }
+    try {
+      const next = await apiRemoveCartItem(productId);
+      setCart(next);
+    } catch (err) {
+      console.error('remove cart item failed', err);
+    }
+  }, [isLoggedIn, user]);
+
+  const handleCheckout = React.useCallback(async () => {
+    if (!isLoggedIn || !user) {
+      // Defer checkout: stash the guest cart so the post-login hydration
+      // effect can sync it before fetching the server cart. We don't auto-
+      // trigger /orders after login — the user clicks "تایید و مرحله بعد"
+      // again so they can review their cart on the authenticated side.
+      pendingGuestCart.current = cart;
+      setIsCartOpen(false);
+      setView('auth');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    try {
+      await apiCheckoutCart();
+      setCart({ items: [], total: 0, itemCount: 0 });
+      setIsCartOpen(false);
+      setView('account');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err) {
+      console.error('checkout failed', err);
+      const msg = err instanceof ApiError ? err.message : String(err);
+      alert('پرداخت ناموفق بود: ' + msg);
+    }
+  }, [isLoggedIn, user, cart]);
 
   const onNavClick = React.useCallback((cat: string) => {
     if (cat === 'admin') {
@@ -5634,7 +5779,6 @@ export default function App() {
             user={user}
             setView={setView}
             setSelectedCategory={setSelectedCategory}
-            setCartCount={setCartCount}
           />
         )}
       </main>
@@ -5772,9 +5916,9 @@ export default function App() {
                   <X size={20} />
                 </button>
               </div>
-              
+
               <div className="flex-1 overflow-y-auto space-y-6 -mx-2 px-2">
-                {cartCount === 0 ? (
+                {!cart || cart.items.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center space-y-6">
                     <div className="w-32 h-32 bg-gray-50 rounded-full flex items-center justify-center text-gray-200">
                       <ShoppingCart size={64} />
@@ -5783,43 +5927,58 @@ export default function App() {
                       <h4 className="text-lg font-bold text-gray-900">سبد خرید شما خالی است</h4>
                       <p className="text-sm text-gray-400 font-medium">محصولات مورد نظرتان را به سبد خرید اضافه کنید</p>
                     </div>
-                    <button onClick={() => setIsCartOpen(false)} className="btn-primary">مشاهده فروشگاه</button>
+                    <button onClick={() => { setIsCartOpen(false); setView('shop'); }} className="btn-primary">مشاهده فروشگاه</button>
                   </div>
                 ) : (
-                      <div className="space-y-4 animate-in slide-in-from-right duration-500">
-                         {/* Mock items based on some products */}
-                         {PRODUCTS.slice(0, 2).map((p, i) => (
-                           <div key={i} className="flex gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 group">
-                              <div className="w-20 h-20 bg-white rounded-xl overflow-hidden shadow-sm shrink-0">
-                                <img src={p.image} className="w-full h-full object-cover" alt={p.name} referrerPolicy="no-referrer" loading="lazy" width="80" height="80" />
-                              </div>
-                              <div className="flex-1 space-y-2">
-                                 <h4 className="text-sm font-bold line-clamp-1">{p.name}</h4>
-                             <div className="flex items-center justify-between">
-                                <span className="text-sm font-black">{p.price.toLocaleString()} تومان</span>
-                                <div className="flex items-center gap-3 bg-white px-3 py-1 rounded-lg border border-gray-200">
-                                   <button className="text-gray-400 hover:text-brand-orange">+</button>
-                                   <span className="text-xs font-bold">۱</span>
-                                   <button className="text-gray-400 hover:text-brand-orange">-</button>
-                                </div>
-                             </div>
+                  <div className="space-y-4 animate-in slide-in-from-right duration-500">
+                    {cart.items.map((item) => {
+                      const product = products.find((p) => p.id === String(item.productId));
+                      return (
+                        <div key={item.productId} className="flex gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 group">
+                          <div className="w-20 h-20 bg-white rounded-xl overflow-hidden shadow-sm shrink-0 flex items-center justify-center text-slate-300">
+                            {product?.image ? (
+                              <img src={product.image} className="w-full h-full object-cover" alt={item.productName} referrerPolicy="no-referrer" loading="lazy" width="80" height="80" />
+                            ) : (
+                              <ShoppingCart size={24} />
+                            )}
                           </div>
-                          <button className="self-start text-gray-300 hover:text-red-500 transition-colors">
-                             <X size={18} />
+                          <div className="flex-1 space-y-2 min-w-0">
+                            <h4 className="text-sm font-bold line-clamp-2">{item.productName}</h4>
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-black">{item.subtotal.toLocaleString('fa-IR')} تومان</span>
+                              <div className="flex items-center gap-3 bg-white px-3 py-1 rounded-lg border border-gray-200">
+                                <button
+                                  type="button"
+                                  onClick={() => handleIncrementCartItem(item.productId)}
+                                  className="text-gray-400 hover:text-brand-orange"
+                                  aria-label="افزایش تعداد"
+                                >+</button>
+                                <span className="text-xs font-bold">{toPersianDigits(item.quantity)}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCartItem(item.productId)}
+                            className="self-start text-gray-300 hover:text-red-500 transition-colors"
+                            aria-label="حذف از سبد"
+                          >
+                            <X size={18} />
                           </button>
-                       </div>
-                     ))}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
-              
-              {cartCount > 0 && (
+
+              {cart && cart.items.length > 0 && (
                 <div className="pt-8 border-t border-gray-100 space-y-6">
                   <div className="flex items-center justify-between text-lg">
                     <span className="text-gray-500 font-bold">مجموع مبلغ:</span>
-                    <span className="text-2xl font-black text-gray-900">۳,۴۵۰,۰۰۰ <span className="text-sm font-bold opacity-50">تومان</span></span>
+                    <span className="text-2xl font-black text-gray-900">{cart.total.toLocaleString('fa-IR')} <span className="text-sm font-bold opacity-50">تومان</span></span>
                   </div>
-                  <button className="w-full btn-primary py-5 rounded-[20px] text-lg">تایید و مرحله بعد</button>
+                  <button onClick={handleCheckout} className="w-full btn-primary py-5 rounded-[20px] text-lg">تایید و مرحله بعد</button>
                 </div>
               )}
             </motion.div>

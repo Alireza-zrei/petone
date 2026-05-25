@@ -2,11 +2,11 @@ import hashlib
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from jose import JWTError, jwt
+from jose import ExpiredSignatureError, JWTError, jwt
 from passlib.context import CryptContext
 
 from app.config import settings
-from app.exceptions import InvalidToken
+from app.exceptions import InvalidToken, TokenExpired
 
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -61,8 +61,10 @@ def decode_token(token: str, expected_type: str) -> int:
         payload = jwt.decode(
             token, settings.secret_key, algorithms=[settings.jwt_algorithm]
         )
+    except ExpiredSignatureError as exc:
+        raise TokenExpired(expected_type) from exc
     except JWTError as exc:
-        raise InvalidToken("Token is invalid or expired") from exc
+        raise InvalidToken("Token is invalid") from exc
     if payload.get("type") != expected_type:
         raise InvalidToken(f"Expected a {expected_type} token")
     subject = payload.get("sub")

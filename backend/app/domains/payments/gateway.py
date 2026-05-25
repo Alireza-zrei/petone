@@ -3,6 +3,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from app.config import settings
+from app.exceptions import UnsupportedPaymentGateway
 
 
 @dataclass
@@ -72,16 +73,12 @@ class ShaparakGateway:
     async def request_payment(
         self, *, amount: int, order_id: int, callback_url: str
     ) -> PaymentRequest:
-        raise NotImplementedError(
-            "ShaparakGateway.request_payment — provide the integration URL"
-        )
+        raise UnsupportedPaymentGateway(self.name, "request_payment")
 
     async def verify_payment(
         self, *, authority: str, amount: int
     ) -> VerificationResult:
-        raise NotImplementedError(
-            "ShaparakGateway.verify_payment — provide the integration URL"
-        )
+        raise UnsupportedPaymentGateway(self.name, "verify_payment")
 
 
 def get_payment_gateway() -> PaymentGateway:

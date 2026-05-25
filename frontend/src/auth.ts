@@ -205,6 +205,84 @@ export async function getMe(): Promise<User> {
   return mapUser(await response.json());
 }
 
+// --- Cart (server-side per user) ---
+
+export interface CartItem {
+  productId: number;
+  productName: string;
+  unitPrice: number;
+  quantity: number;
+  subtotal: number;
+}
+
+export interface Cart {
+  items: CartItem[];
+  total: number;
+  itemCount: number; // sum of quantities, derived client-side
+}
+
+interface ApiCartItem {
+  product_id: number;
+  product_name: string;
+  unit_price: number;
+  quantity: number;
+  subtotal: number;
+}
+
+interface ApiCart {
+  items: ApiCartItem[];
+  total: number;
+}
+
+function mapCart(c: ApiCart): Cart {
+  const items: CartItem[] = c.items.map((i) => ({
+    productId: i.product_id,
+    productName: i.product_name,
+    unitPrice: i.unit_price,
+    quantity: i.quantity,
+    subtotal: i.subtotal,
+  }));
+  return {
+    items,
+    total: c.total,
+    itemCount: items.reduce((s, i) => s + i.quantity, 0),
+  };
+}
+
+export async function getCart(): Promise<Cart> {
+  const response = await authFetch('/cart');
+  if (!response.ok) throw new ApiError(response.status, await parseError(response));
+  return mapCart(await response.json());
+}
+
+export async function addCartItem(productId: number, quantity = 1): Promise<Cart> {
+  const response = await authFetch('/cart/items', {
+    method: 'POST',
+    body: JSON.stringify({ product_id: productId, quantity }),
+  });
+  if (!response.ok) throw new ApiError(response.status, await parseError(response));
+  return mapCart(await response.json());
+}
+
+export async function removeCartItem(productId: number): Promise<Cart> {
+  const response = await authFetch(`/cart/items/${productId}`, { method: 'DELETE' });
+  if (!response.ok) throw new ApiError(response.status, await parseError(response));
+  return mapCart(await response.json());
+}
+
+export async function checkoutCart(): Promise<Order> {
+  const response = await authFetch('/orders', { method: 'POST' });
+  if (!response.ok) throw new ApiError(response.status, await parseError(response));
+  const o: ApiOrder = await response.json();
+  return {
+    id: o.id,
+    status: o.status,
+    totalCents: o.total_cents,
+    createdAt: o.created_at,
+    itemsCount: o.items.reduce((s, i) => s + i.quantity, 0),
+  };
+}
+
 // --- Orders (server-side per user) ---
 
 export interface Order {

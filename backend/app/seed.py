@@ -22,7 +22,7 @@ _PRODUCTS: list[dict] = [
         "rating": 4.8,
         "reviews_count": 124,
         "image_url": _IMG.format("1589924691995-400dc9ecc119"),
-        "category": "غذای سگ",
+        "category": "غذای سگ", 
         "description": "غذای خشک سگ رویال کنین مدل مینی ادالت مخصوص سگ‌های بالغ نژاد کوچک می باشد. این محصول با فرمولاسیون ویژه خود به حفظ وزن ایده‌آل و سلامت پوست و مو کمک می‌کند.",
         "is_best_seller": True,
         "stock": 50,

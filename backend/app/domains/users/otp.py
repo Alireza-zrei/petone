@@ -15,7 +15,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.domains.users.models import OtpCode, OtpPurpose
 from app.domains.users.sms import send_otp_sms
-from app.exceptions import OtpInvalid, OtpResendTooSoon
+from app.exceptions import (
+    NoPendingOtp,
+    OtpExpired,
+    OtpInvalid,
+    OtpMaxAttemptsExceeded,
+    OtpResendTooSoon,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,21 +86,33 @@ async def verify(
 ) -> None:
     """Consume the latest unconsumed OTP for (mobile, purpose).
 
-    Single source of truth for "is this OTP good right now"; raises OtpInvalid
-    with a deliberately uniform message so callers don't leak "wrong code" vs.
-    "expired" vs. "no pending OTP" to attackers.
+    Single source of truth for "is this OTP good right now". Raises an
+    OtpInvalid subclass per failure mode (NoPendingOtp / OtpExpired /
+    OtpMaxAttemptsExceeded / OtpInvalid) — they all share the same
+    user-facing message so callers don't leak "wrong code" vs. "expired" vs.
+    "no pending OTP" to attackers, but server logs can distinguish them.
     """
     latest = await _latest_for(db, mobile, purpose)
     if latest is None or latest.consumed_at is not None:
-        raise OtpInvalid()
+        logger.warning("NoPendingOtp mobile=%s purpose=%s", mobile, purpose.value)
+        raise NoPendingOtp()
     now = datetime.now(UTC)
     if _as_utc(latest.expires_at) <= now:
-        raise OtpInvalid()
+        logger.warning("OtpExpired mobile=%s purpose=%s", mobile, purpose.value)
+        raise OtpExpired()
     if latest.attempts >= settings.otp_max_attempts:
-        raise OtpInvalid()
+        logger.warning(
+            "OtpMaxAttemptsExceeded mobile=%s purpose=%s attempts=%s",
+            mobile, purpose.value, latest.attempts,
+        )
+        raise OtpMaxAttemptsExceeded()
     if latest.code_hash != _hash_code(code):
         latest.attempts += 1
         await db.commit()
+        logger.info(
+            "OtpInvalid mobile=%s purpose=%s attempt=%s",
+            mobile, purpose.value, latest.attempts,
+        )
         raise OtpInvalid()
     latest.consumed_at = now
     await db.commit()

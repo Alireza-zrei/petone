@@ -15,6 +15,8 @@ from app.exceptions import (
     InvalidToken,
     OtpInvalid,
     PhoneAlreadyRegistered,
+    TokenExpired,
+    TokenRevoked,
 )
 from app.security import (
     REFRESH_TOKEN_TYPE,
@@ -99,8 +101,10 @@ async def refresh_tokens(db: AsyncSession, refresh_token: str) -> TokenPair:
     expires_at = stored.expires_at
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=UTC)
-    if stored.revoked_at is not None or expires_at <= now:
-        raise InvalidToken("Refresh token is revoked or expired")
+    if stored.revoked_at is not None:
+        raise TokenRevoked
+    if expires_at <= now:
+        raise TokenExpired("refresh")
     user = await crud.get(db, user_id)
     if user is None or not user.is_active:
         raise InvalidToken("Refresh token subject is no longer valid")

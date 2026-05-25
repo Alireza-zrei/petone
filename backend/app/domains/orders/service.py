@@ -11,7 +11,7 @@ from app.exceptions import (
     EmptyCart,
     InsufficientStock,
     OrderNotFound,
-    ProductNotFound,
+    ProductDiscontinued,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,10 +51,15 @@ async def add_item(db: AsyncSession, user_id: int, data: CartItemCreate) -> Cart
     if existing is not None:
         existing.quantity += data.quantity
     else:
-        db.add(CartItem(cart_id=cart.id, product_id=product.id, quantity=data.quantity))
+        # Append via the relationship (not bare db.add) so the in-memory
+        # Cart.items collection stays consistent with what we just inserted.
+        cart.items.append(CartItem(product_id=product.id, quantity=data.quantity))
     await db.commit()
-    fresh = await crud.get_cart(db, user_id)
-    return _build_cart_read(fresh) if fresh is not None else CartRead(items=[])
+    # `expire_on_commit=False` means the previously-loaded items collection
+    # would otherwise be returned as-was; refresh to pick up new rows along
+    # with their eagerly-loaded product relationship.
+    await db.refresh(cart, ["items"])
+    return _build_cart_read(cart)
 
 
 async def remove_item(db: AsyncSession, user_id: int, product_id: int) -> CartRead:
@@ -64,8 +69,8 @@ async def remove_item(db: AsyncSession, user_id: int, product_id: int) -> CartRe
         raise CartItemNotFound(product_id)
     await db.delete(item)
     await db.commit()
-    fresh = await crud.get_cart(db, user_id)
-    return _build_cart_read(fresh) if fresh is not None else CartRead(items=[])
+    await db.refresh(cart, ["items"])
+    return _build_cart_read(cart)
 
 
 async def checkout(db: AsyncSession, user_id: int) -> OrderRead:
@@ -77,7 +82,7 @@ async def checkout(db: AsyncSession, user_id: int) -> OrderRead:
     for item in cart.items:
         product = item.product
         if product.deleted_at is not None:
-            raise ProductNotFound(product.id)
+            raise ProductDiscontinued(product.id)
         if product.stock < item.quantity:
             raise InsufficientStock(product.id, item.quantity, product.stock)
         product.stock -= item.quantity

@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -12,11 +14,20 @@ from app.domains.orders.router import router as orders_router
 from app.domains.payments.router import router as payments_router
 from app.domains.products.router import router as products_router
 from app.domains.users.router import router as auth_router
-from app.exceptions import AuthError, ConflictError, ForbiddenError, NotFoundError
+from app.exceptions import AuthError, ConflictError, ForbiddenError, NotFoundError, PetoneError
 from app.observability import RequestIdMiddleware, configure_logging
 from app.rate_limit import limiter
 
 configure_logging()
+logger = logging.getLogger("app.errors")
+
+
+def _log_app_error(request: Request, exc: PetoneError, status_code: int) -> None:
+    """One JSON line per 4xx response: class name, route, message — easy to grep."""
+    logger.warning(
+        "%s %s %s -> %s: %s",
+        type(exc).__name__, request.method, request.url.path, status_code, exc,
+    )
 
 OPENAPI_TAGS = [
     {"name": "products", "description": "Browse the catalog; admins create and edit products."},
@@ -47,16 +58,19 @@ app.add_middleware(RequestIdMiddleware)
 
 @app.exception_handler(NotFoundError)
 async def handle_not_found(request: Request, exc: NotFoundError) -> JSONResponse:
+    _log_app_error(request, exc, status.HTTP_404_NOT_FOUND)
     return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"detail": str(exc)})
 
 
 @app.exception_handler(ConflictError)
 async def handle_conflict(request: Request, exc: ConflictError) -> JSONResponse:
+    _log_app_error(request, exc, status.HTTP_409_CONFLICT)
     return JSONResponse(status_code=status.HTTP_409_CONFLICT, content={"detail": str(exc)})
 
 
 @app.exception_handler(AuthError)
 async def handle_auth_error(request: Request, exc: AuthError) -> JSONResponse:
+    _log_app_error(request, exc, status.HTTP_401_UNAUTHORIZED)
     return JSONResponse(
         status_code=status.HTTP_401_UNAUTHORIZED,
         content={"detail": str(exc)},
@@ -66,6 +80,7 @@ async def handle_auth_error(request: Request, exc: AuthError) -> JSONResponse:
 
 @app.exception_handler(ForbiddenError)
 async def handle_forbidden(request: Request, exc: ForbiddenError) -> JSONResponse:
+    _log_app_error(request, exc, status.HTTP_403_FORBIDDEN)
     return JSONResponse(status_code=status.HTTP_403_FORBIDDEN, content={"detail": str(exc)})
 
 
